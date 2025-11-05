@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build --watch",
+    "build": "vite build",
+    "build:extension": "vite build --outDir dist && node build.js",
     "preview": "vite preview"
   },
   "dependencies": {

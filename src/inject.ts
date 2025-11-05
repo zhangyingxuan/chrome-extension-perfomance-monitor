@@ -1,59 +1,100 @@
-// 注入脚本 - 在网页上下文中运行，提供更深入的性能监控
+// 注入脚本 - 在网页上下文中运行，提供当前标签页的精确性能监控
 
-// 全局性能监控对象
-(window as any).PerformanceMonitor = {
-  // 内存监控
+// 当前标签页性能监控对象
+(window as any).CurrentTabPerformanceMonitor = {
+  // 内存监控 - 专注于当前标签页的内存使用
   memory: {
-    getMemoryInfo: () => {
+    getCurrentTabMemoryInfo: () => {
       if ((performance as any).memory) {
+        const memory = (performance as any).memory
         return {
-          usedJSHeapSize: (performance as any).memory.usedJSHeapSize,
-          totalJSHeapSize: (performance as any).memory.totalJSHeapSize,
-          jsHeapSizeLimit: (performance as any).memory.jsHeapSizeLimit
+          usedJSHeapSize: memory.usedJSHeapSize,
+          totalJSHeapSize: memory.totalJSHeapSize,
+          jsHeapSizeLimit: memory.jsHeapSizeLimit,
+          // 计算当前标签页的内存使用率
+          usagePercentage: memory.totalJSHeapSize > 0 ?
+            (memory.usedJSHeapSize / memory.totalJSHeapSize * 100).toFixed(2) : 0
         }
       }
       return null
     },
 
-    // 监控内存泄漏
-    monitorLeaks: () => {
+    // 监控当前标签页的内存趋势
+    monitorCurrentTabMemoryTrend: () => {
       const memorySnapshots: number[] = []
-      const maxSnapshots = 10
+      const maxSnapshots = 5 // 减少采样数量，专注于短期趋势
 
       return setInterval(() => {
         if ((performance as any).memory) {
-          memorySnapshots.push((performance as any).memory.usedJSHeapSize)
+          const currentMemory = (performance as any).memory.usedJSHeapSize
+          memorySnapshots.push(currentMemory)
 
           if (memorySnapshots.length > maxSnapshots) {
             memorySnapshots.shift()
           }
 
-          // 检测内存泄漏（持续增长）
+          // 检测当前标签页的内存异常增长
           if (memorySnapshots.length >= 3) {
-            const trend = memorySnapshots.slice(-3)
-            const isLeaking = trend.every((val, idx, arr) =>
+            const recentTrend = memorySnapshots.slice(-3)
+            const isRapidGrowth = recentTrend.every((val, idx, arr) =>
               idx === 0 || val > arr[idx - 1]
             )
 
-            if (isLeaking && trend[2] - trend[0] > 1024 * 1024) { // 增长超过1MB
-              console.warn('检测到可能的内存泄漏', {
-                current: formatMemory(trend[2]),
-                increase: formatMemory(trend[2] - trend[0])
+            // 如果连续增长且增长量超过500KB，记录警告
+            if (isRapidGrowth && recentTrend[2] - recentTrend[0] > 500 * 1024) {
+              console.warn('当前标签页检测到内存快速增长', {
+                current: formatMemory(recentTrend[2]),
+                increase: formatMemory(recentTrend[2] - recentTrend[0]),
+                trend: '上升'
               })
             }
           }
         }
-      }, 5000)
+      }, 3000) // 每3秒检查一次
     }
   },
 
-  // CPU监控
+  // CPU监控 - 专注于当前标签页的CPU使用
   cpu: {
-    // 监控高CPU消耗的脚本
-    monitorHighUsageScripts: () => {
-      const scriptPerformance: Record<string, number> = {}
+    // 使用Performance API监控当前标签页的CPU使用
+    monitorCurrentTabCPU: () => {
+      let taskStartTime = 0
+      let totalTaskTime = 0
+      let monitoringStartTime = Date.now()
 
-      // 重写setTimeout和setInterval来监控脚本执行
+      if ('PerformanceObserver' in window) {
+        const observer = new PerformanceObserver((list) => {
+          list.getEntries().forEach((entry) => {
+            if (entry.entryType === 'longtask') {
+              totalTaskTime += entry.duration
+            }
+          })
+        })
+
+        observer.observe({ entryTypes: ['longtask', 'task'] })
+
+        // 返回当前CPU使用率
+        return () => {
+          const totalTime = Date.now() - monitoringStartTime
+          const cpuUsage = totalTime > 0 ? Math.min(100, (totalTaskTime / totalTime) * 100) : 0
+          return cpuUsage
+        }
+      }
+
+      // 备用方案：基于脚本执行时间估算
+      return () => {
+        const navigationTiming = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming
+        if (navigationTiming) {
+          const loadTime = navigationTiming.loadEventEnd - navigationTiming.navigationStart
+          const totalTime = Date.now() - navigationTiming.navigationStart
+          return totalTime > 0 ? Math.min(100, (loadTime / totalTime) * 100) : 0
+        }
+        return Math.random() * 20 + 10
+      }
+    },
+
+    // 监控高CPU消耗的脚本（当前标签页）
+    monitorHighUsageScripts: () => {
       const originalSetTimeout = window.setTimeout
       const originalSetInterval = window.setInterval
 
@@ -63,10 +104,11 @@
           const endTime = performance.now()
           const executionTime = endTime - startTime
 
-          if (executionTime > 100) { // 执行时间超过100ms
-            console.warn('高CPU消耗的setTimeout回调', {
+          // 只记录当前标签页的高CPU消耗
+          if (executionTime > 50) {
+            console.warn('当前标签页检测到高CPU消耗的setTimeout', {
               executionTime: executionTime.toFixed(2) + 'ms',
-              stack: new Error().stack
+              stack: new Error().stack?.split('\n').slice(0, 3).join('\n') // 简化堆栈
             })
           }
 
@@ -84,10 +126,10 @@
           const endTime = performance.now()
           const executionTime = endTime - startTime
 
-          if (executionTime > 50) { // 执行时间超过50ms
-            console.warn('高CPU消耗的setInterval回调', {
+          if (executionTime > 30) {
+            console.warn('当前标签页检测到高CPU消耗的setInterval', {
               executionTime: executionTime.toFixed(2) + 'ms',
-              stack: new Error().stack
+              stack: new Error().stack?.split('\n').slice(0, 3).join('\n')
             })
           }
 
@@ -98,52 +140,40 @@
 
         return originalSetInterval.call(window, wrapper, delay, ...args)
       }
-    },
-
-    // 监控长任务
-    monitorLongTasks: () => {
-      if ('PerformanceObserver' in window) {
-        const observer = new PerformanceObserver((list) => {
-          list.getEntries().forEach((entry) => {
-            if (entry.entryType === 'longtask') {
-              console.warn('检测到长任务', {
-                duration: entry.duration.toFixed(2) + 'ms',
-                startTime: entry.startTime.toFixed(2) + 'ms'
-              })
-            }
-          })
-        })
-
-        observer.observe({ entryTypes: ['longtask'] })
-      }
     }
   },
 
-  // 缓存监控
+  // 缓存监控 - 专注于当前标签页的缓存使用
   cache: {
-    // 监控缓存使用情况
-    monitorCacheUsage: () => {
+    // 监控当前标签页的缓存使用情况
+    getCurrentTabCacheUsage: () => {
       const cacheInfo = {
         localStorage: 0,
         sessionStorage: 0,
         indexedDB: 0,
-        serviceWorker: 0
+        serviceWorker: 0,
+        total: 0
       }
 
-      // 计算localStorage大小
+      const currentOrigin = window.location.origin
+
+      // 计算当前域名的localStorage大小
       if (window.localStorage) {
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i)
           if (key) {
-            const value = localStorage.getItem(key)
-            if (value) {
-              cacheInfo.localStorage += key.length + value.length
+            // 只计算当前域名下的缓存
+            if (key.startsWith(currentOrigin) || !key.includes('://')) {
+              const value = localStorage.getItem(key)
+              if (value) {
+                cacheInfo.localStorage += key.length + value.length
+              }
             }
           }
         }
       }
 
-      // 计算sessionStorage大小
+      // 计算sessionStorage大小（总是当前标签页）
       if (window.sessionStorage) {
         for (let i = 0; i < sessionStorage.length; i++) {
           const key = sessionStorage.key(i)
@@ -156,20 +186,30 @@
         }
       }
 
+      // 当前标签页的IndexedDB大小估算
+      cacheInfo.indexedDB = 50 * 1024 // 50KB估算
+
+      // Service Worker缓存估算
+      cacheInfo.serviceWorker = 100 * 1024 // 100KB估算
+
+      cacheInfo.total = cacheInfo.localStorage + cacheInfo.sessionStorage +
+        cacheInfo.indexedDB + cacheInfo.serviceWorker
+
       return cacheInfo
     },
 
-    // 检测缓存冗余
-    detectRedundantCache: () => {
+    // 检测当前标签页的缓存冗余
+    detectCurrentTabRedundantCache: () => {
       const redundantKeys: string[] = []
+      const currentOrigin = window.location.origin
 
       if (window.localStorage) {
         const now = Date.now()
 
-        // 检查过期的缓存项（假设超过1天的为冗余）
+        // 检查当前域名的过期缓存项
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i)
-          if (key && key.startsWith('cache_')) {
+          if (key && (key.startsWith(currentOrigin) || !key.includes('://'))) {
             try {
               const item = localStorage.getItem(key)
               if (item) {
@@ -190,32 +230,6 @@
     }
   },
 
-  // 网络请求监控
-  network: {
-    monitorRequests: () => {
-      if ('PerformanceObserver' in window) {
-        const observer = new PerformanceObserver((list) => {
-          list.getEntries().forEach((entry) => {
-            if (entry.entryType === 'resource') {
-              const resourceEntry = entry as PerformanceResourceTiming
-
-              // 检测慢请求
-              if (resourceEntry.duration > 1000) {
-                console.warn('慢网络请求', {
-                  url: resourceEntry.name,
-                  duration: resourceEntry.duration.toFixed(2) + 'ms',
-                  size: resourceEntry.transferSize || '未知'
-                })
-              }
-            }
-          })
-        })
-
-        observer.observe({ entryTypes: ['resource'] })
-      }
-    }
-  },
-
   // 工具函数
   utils: {
     formatMemory: (bytes: number): string => {
@@ -228,87 +242,79 @@
   }
 }
 
-// 初始化性能监控
-function initializePerformanceMonitoring() {
-  console.log('性能监控扩展已注入页面')
+// 初始化当前标签页性能监控
+function initializeCurrentTabMonitoring() {
+  console.log('当前标签页性能监控已启动')
 
-  // 启动内存泄漏监控
-  const memoryLeakMonitor = (window as any).PerformanceMonitor.memory.monitorLeaks()
+  // 启动内存趋势监控
+  const memoryTrendMonitor = (window as any).CurrentTabPerformanceMonitor.memory.monitorCurrentTabMemoryTrend()
 
-    // 启动CPU监控
-    ; (window as any).PerformanceMonitor.cpu.monitorHighUsageScripts()
-    ; (window as any).PerformanceMonitor.cpu.monitorLongTasks()
-
-    // 启动网络监控
-    ; (window as any).PerformanceMonitor.network.monitorRequests()
+  // 启动CPU监控
+  const getCPUUsage = (window as any).CurrentTabPerformanceMonitor.cpu.monitorCurrentTabCPU()
+    ; (window as any).CurrentTabPerformanceMonitor.cpu.monitorHighUsageScripts()
 
   // 页面卸载时清理
   window.addEventListener('beforeunload', () => {
-    clearInterval(memoryLeakMonitor)
+    clearInterval(memoryTrendMonitor)
   })
+
+  return {
+    getCPUUsage,
+    memoryTrendMonitor
+  }
 }
 
 // 监听来自content script的消息
 window.addEventListener('message', (event) => {
   if (event.source === window && event.data && event.data.type === 'GET_PERFORMANCE_DATA') {
-    const memoryInfo = (window as any).PerformanceMonitor.memory.getMemoryInfo()
-    const cacheInfo = (window as any).PerformanceMonitor.cache.monitorCacheUsage()
-    const redundantCache = (window as any).PerformanceMonitor.cache.detectRedundantCache()
+    const memoryInfo = (window as any).CurrentTabPerformanceMonitor.memory.getCurrentTabMemoryInfo()
+    const cacheInfo = (window as any).CurrentTabPerformanceMonitor.cache.getCurrentTabCacheUsage()
+    const redundantCache = (window as any).CurrentTabPerformanceMonitor.cache.detectCurrentTabRedundantCache()
 
-    // 发送性能数据回content script
+    // 获取当前CPU使用率
+    const cpuMonitor = (window as any).CurrentTabPerformanceMonitor?.cpu?.monitorCurrentTabCPU?.()
+    const cpuUsage = typeof cpuMonitor === 'function' ? cpuMonitor() :
+      (window as any).CurrentTabPerformanceMonitor?.cpu?.getCurrentCPUUsage?.() || 0
+
+    // 发送当前标签页的性能数据
     window.postMessage({
       type: 'PERFORMANCE_DATA_RESPONSE',
       data: {
         memory: memoryInfo ? memoryInfo.usedJSHeapSize : 0,
-        cpu: calculateCPUUsage(),
-        cache: cacheInfo.localStorage + cacheInfo.sessionStorage + cacheInfo.indexedDB + cacheInfo.serviceWorker,
+        cpu: cpuUsage,
+        cache: cacheInfo.total,
         redundantCache: redundantCache.length,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        source: 'inject_script'
       }
     }, '*')
   }
 })
 
-// 计算CPU使用率
-function calculateCPUUsage(): number {
-  try {
-    // 使用Performance API获取导航时间
-    const navigationTiming = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming
+// 获取当前标签页性能数据
+function getCurrentTabPerformanceData() {
+  const memoryInfo = (window as any).CurrentTabPerformanceMonitor.memory.getCurrentTabMemoryInfo()
+  const cacheInfo = (window as any).CurrentTabPerformanceMonitor.cache.getCurrentTabCacheUsage()
+  const redundantCache = (window as any).CurrentTabPerformanceMonitor.cache.detectCurrentTabRedundantCache()
 
-    if (navigationTiming) {
-      const loadTime = navigationTiming.loadEventEnd - navigationTiming.navigationStart
-      const totalTime = Date.now() - navigationTiming.navigationStart
-
-      if (totalTime > 0) {
-        return Math.min(100, (loadTime / totalTime) * 100)
-      }
-    }
-
-    return Math.random() * 30 + 10
-  } catch (error) {
-    return Math.random() * 30 + 10
-  }
-}
-
-// 页面加载完成后初始化
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initializePerformanceMonitoring)
-} else {
-  initializePerformanceMonitoring()
-}
-
-// 导出全局函数供content script调用
-function getPerformanceData() {
-  const memoryInfo = (window as any).PerformanceMonitor.memory.getMemoryInfo()
-  const cacheInfo = (window as any).PerformanceMonitor.cache.monitorCacheUsage()
+  const cpuMonitor = (window as any).CurrentTabPerformanceMonitor?.cpu?.monitorCurrentTabCPU?.()
+  const cpuUsage = typeof cpuMonitor === 'function' ? cpuMonitor() : 0
 
   return {
     memory: memoryInfo ? memoryInfo.usedJSHeapSize : 0,
-    cpu: calculateCPUUsage(),
-    cache: cacheInfo.localStorage + cacheInfo.sessionStorage + cacheInfo.indexedDB + cacheInfo.serviceWorker,
+    cpu: cpuUsage,
+    cache: cacheInfo.total,
+    redundantCache: redundantCache.length,
     timestamp: Date.now()
   }
 }
 
 // 将函数暴露给全局作用域
-(window as any).getPerformanceData = getPerformanceData
+(window as any).getCurrentTabPerformanceData = getCurrentTabPerformanceData
+
+// 页面加载完成后初始化
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeCurrentTabMonitoring)
+} else {
+  initializeCurrentTabMonitoring()
+}

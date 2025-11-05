@@ -3,7 +3,7 @@
   "name": "网站性能监控扩展",
   "version": "1.0.0",
   "description": "零配置、一键启动的网站运行时性能监控工具",
-  "permissions": ["activeTab", "storage", "scripting"],
+  "permissions": ["activeTab", "storage", "scripting", "tabs"],
   "host_permissions": ["<all_urls>"],
   "action": {
     "default_popup": "popup.html",

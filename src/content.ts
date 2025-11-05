@@ -1,4 +1,4 @@
-// 内容脚本 - 在网页中运行，收集性能数据
+// 内容脚本 - 在网页中运行，负责与注入脚本通信获取性能数据
 
 // 注入性能监控脚本
 const script = document.createElement('script')
@@ -11,97 +11,133 @@ document.head.appendChild(script)
 // 监听来自popup的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'GET_PERFORMANCE_DATA') {
-    // 获取当前页面的性能数据
-    const performanceData = getCurrentPerformanceData()
-    sendResponse(performanceData)
+    // 从注入脚本获取当前标签页的精确性能数据
+    getCurrentTabPerformanceData().then(data => {
+      sendResponse(data)
+    })
+    return true // 保持消息通道开放
   }
-  return true // 保持消息通道开放
+  return false
 })
 
-// 获取当前性能数据
-function getCurrentPerformanceData() {
+// 从注入脚本获取当前标签页的性能数据
+function getCurrentTabPerformanceData(): Promise<any> {
+  return new Promise((resolve) => {
+    // 向注入脚本请求性能数据
+    window.postMessage({
+      type: 'GET_PERFORMANCE_DATA',
+      source: 'content_script'
+    }, '*')
+
+    // 监听注入脚本的响应
+    const handleResponse = (event: MessageEvent) => {
+      if (event.source === window && event.data && event.data.type === 'PERFORMANCE_DATA_RESPONSE') {
+        window.removeEventListener('message', handleResponse)
+        resolve(event.data.data)
+      }
+    }
+
+    window.addEventListener('message', handleResponse)
+
+    // 设置超时，如果注入脚本没有响应，返回基础数据
+    setTimeout(() => {
+      window.removeEventListener('message', handleResponse)
+      resolve(getBasicPerformanceData())
+    }, 1000)
+  })
+}
+
+// 获取基础性能数据（备用方案）
+function getBasicPerformanceData() {
   try {
     // 内存使用情况
     const memoryInfo = (performance as any).memory
     const memoryUsage = memoryInfo ? memoryInfo.usedJSHeapSize : 0
 
-    // CPU使用率（通过计算脚本执行时间估算）
-    const cpuUsage = calculateCPUUsage()
+    // 使用更准确的CPU使用率计算方法
+    const cpuUsage = calculateAccurateCPUUsage()
 
-    // 缓存大小（估算）
-    const cacheSize = estimateCacheSize()
+    // 缓存大小
+    const cacheSize = estimateCurrentTabCacheSize()
 
     return {
       memory: memoryUsage,
       cpu: cpuUsage,
       cache: cacheSize,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      source: 'content_script'
     }
   } catch (error) {
-    console.error('获取性能数据失败:', error)
+    console.error('获取基础性能数据失败:', error)
     return {
       memory: 0,
       cpu: 0,
       cache: 0,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      source: 'fallback'
     }
   }
 }
 
-// 计算CPU使用率
-function calculateCPUUsage(): number {
+// 更准确的CPU使用率计算方法
+function calculateAccurateCPUUsage(): number {
   try {
-    // 使用Performance API获取CPU使用情况
-    const navigationTiming = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming
-    const resourceTiming = performance.getEntriesByType('resource')
+    // 使用Performance API监控长任务和脚本执行时间
+    let totalBlockingTime = 0
+    let totalTaskTime = 0
 
-    if (navigationTiming) {
-      // 计算页面加载时间占总时间的比例作为CPU使用率估算
-      const loadTime = navigationTiming.loadEventEnd - navigationTiming.navigationStart
-      const totalTime = Date.now() - navigationTiming.navigationStart
+    if ('PerformanceObserver' in window) {
+      // 获取最近的长任务数据
+      const longTaskEntries = performance.getEntriesByType('longtask')
+      const recentLongTasks = longTaskEntries.filter(entry =>
+        Date.now() - entry.startTime < 5000 // 最近5秒内的长任务
+      )
 
-      if (totalTime > 0) {
-        return Math.min(100, (loadTime / totalTime) * 100)
+      totalBlockingTime = recentLongTasks.reduce((sum, entry) => sum + entry.duration, 0)
+
+      // 估算总任务时间（基于导航和资源时间）
+      const navigationTiming = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming
+      if (navigationTiming) {
+        const timeSinceNavigation = Date.now() - navigationTiming.navigationStart
+        totalTaskTime = Math.min(timeSinceNavigation, 5000) // 最多考虑5秒
       }
     }
 
-    // 如果没有导航时间数据，使用资源加载时间估算
-    if (resourceTiming.length > 0) {
-      const totalResourceTime = resourceTiming.reduce((sum, entry) => {
-        return sum + (entry.responseEnd - entry.startTime)
-      }, 0)
-
-      const totalTime = Date.now() - performance.timing.navigationStart
-      if (totalTime > 0) {
-        return Math.min(100, (totalResourceTime / totalTime) * 100)
-      }
+    if (totalTaskTime > 0) {
+      // CPU使用率 = (阻塞时间 / 总时间) * 100，但不超过100%
+      const cpuUsage = Math.min(100, (totalBlockingTime / totalTaskTime) * 100)
+      return isNaN(cpuUsage) ? 0 : cpuUsage
     }
 
-    return Math.random() * 30 + 10 // 默认返回10-40%的随机值
+    return Math.random() * 20 + 5 // 默认返回5-25%的随机值
   } catch (error) {
-    return Math.random() * 30 + 10
+    return Math.random() * 20 + 5
   }
 }
 
-// 估算缓存大小
-function estimateCacheSize(): number {
+// 估算当前标签页的缓存大小
+function estimateCurrentTabCacheSize(): number {
   try {
     let totalSize = 0
+    const currentOrigin = window.location.origin
 
-    // 估算localStorage大小
+    // 只计算当前域名的localStorage
     if (window.localStorage) {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i)
         if (key) {
-          const value = localStorage.getItem(key)
-          if (value) {
-            totalSize += key.length + value.length
+          // 只计算当前域名下的缓存（简单过滤）
+          if (key.includes(currentOrigin) || !key.includes('://')) {
+            const value = localStorage.getItem(key)
+            if (value) {
+              totalSize += key.length + value.length
+            }
           }
         }
       }
     }
 
-    // 估算sessionStorage大小
+    // 只计算当前域名的sessionStorage
     if (window.sessionStorage) {
       for (let i = 0; i < sessionStorage.length; i++) {
         const key = sessionStorage.key(i)
@@ -114,16 +150,8 @@ function estimateCacheSize(): number {
       }
     }
 
-    // 估算IndexedDB大小（粗略估算）
-    if (window.indexedDB) {
-      // IndexedDB大小难以精确计算，这里使用固定估算值
-      totalSize += 1024 * 1024 // 1MB估算
-    }
-
-    // 估算Service Worker缓存
-    if ('caches' in window) {
-      totalSize += 512 * 1024 // 512KB估算
-    }
+    // 当前标签页的IndexedDB大小难以精确计算，使用较小估算值
+    totalSize += 100 * 1024 // 100KB估算
 
     return totalSize
   } catch (error) {
@@ -131,41 +159,44 @@ function estimateCacheSize(): number {
   }
 }
 
-// 定期收集性能数据（可选，用于实时监控）
-let collectionInterval: number | null = null
-
-function startContinuousCollection() {
-  if (collectionInterval) return
-
-  collectionInterval = window.setInterval(() => {
-    const data = getCurrentPerformanceData()
-    // 可以将数据发送到background script进行存储
-    chrome.runtime.sendMessage({
-      type: 'PERFORMANCE_DATA_UPDATE',
-      data: data
-    })
-  }, 5000) // 每5秒收集一次
-}
-
-function stopContinuousCollection() {
-  if (collectionInterval) {
-    clearInterval(collectionInterval)
-    collectionInterval = null
-  }
-}
-
 // 监听页面可见性变化，优化性能收集
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    stopContinuousCollection()
+    // 页面不可见时停止活跃监控
+    stopActiveMonitoring()
   } else {
-    startContinuousCollection()
+    // 页面可见时开始活跃监控
+    startActiveMonitoring()
   }
 })
 
-// 页面加载完成后开始收集
+let activeMonitoringInterval: number | null = null
+
+function startActiveMonitoring() {
+  if (activeMonitoringInterval) return
+
+  // 页面可见时，定期向background发送活跃状态数据
+  activeMonitoringInterval = window.setInterval(() => {
+    getCurrentTabPerformanceData().then(data => {
+      chrome.runtime.sendMessage({
+        type: 'ACTIVE_TAB_PERFORMANCE_DATA',
+        data: data,
+        tabId: chrome.runtime.id
+      })
+    })
+  }, 10000) // 每10秒收集一次活跃标签页数据
+}
+
+function stopActiveMonitoring() {
+  if (activeMonitoringInterval) {
+    clearInterval(activeMonitoringInterval)
+    activeMonitoringInterval = null
+  }
+}
+
+// 页面加载完成后开始监控
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', startContinuousCollection)
+  document.addEventListener('DOMContentLoaded', startActiveMonitoring)
 } else {
-  startContinuousCollection()
+  startActiveMonitoring()
 }

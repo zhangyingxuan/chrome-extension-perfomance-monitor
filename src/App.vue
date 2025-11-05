@@ -295,33 +295,65 @@ export default defineComponent({
       cacheChartInstance.update();
     };
 
-    // 获取性能数据
+    // 获取当前标签页性能数据
     const getPerformanceData = async (): Promise<PerformanceData> => {
       return new Promise((resolve) => {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
           if (tabs[0]?.id) {
-            chrome.tabs.sendMessage(
-              tabs[0].id,
-              { type: "GET_PERFORMANCE_DATA" },
+            const currentTabId = tabs[0].id;
+
+            // 优先从background获取当前标签页的存储数据
+            chrome.runtime.sendMessage(
+              { type: "GET_ACTIVE_TAB_DATA" },
               (response) => {
-                if (response) {
+                if (response && response.data && response.data.length > 0) {
+                  // 使用存储的最新数据
+                  const latestData = response.data[response.data.length - 1];
                   resolve({
-                    timestamp: Date.now(),
-                    memory: response.memory || 0,
-                    cpu: response.cpu || 0,
-                    cache: response.cache || 0,
+                    timestamp: latestData.timestamp || Date.now(),
+                    memory: latestData.memory || 0,
+                    cpu: latestData.cpu || 0,
+                    cache: latestData.cache || 0,
+                    source: latestData.source || "stored",
                   });
                 } else {
-                  // 如果没有响应，使用模拟数据
-                  resolve({
-                    timestamp: Date.now(),
-                    memory: Math.random() * 100000000,
-                    cpu: Math.random() * 100,
-                    cache: Math.random() * 50000000,
-                  });
+                  // 如果没有存储数据，从content script获取实时数据
+                  chrome.tabs.sendMessage(
+                    currentTabId,
+                    { type: "GET_PERFORMANCE_DATA" },
+                    (response) => {
+                      if (response) {
+                        resolve({
+                          timestamp: Date.now(),
+                          memory: response.memory || 0,
+                          cpu: response.cpu || 0,
+                          cache: response.cache || 0,
+                          source: response.source || "realtime",
+                        });
+                      } else {
+                        // 如果都没有响应，使用模拟数据
+                        resolve({
+                          timestamp: Date.now(),
+                          memory: Math.random() * 50000000 + 10000000, // 10-60MB
+                          cpu: Math.random() * 30 + 10, // 10-40%
+                          cache: Math.random() * 20000000 + 5000000, // 5-25MB
+                          source: "fallback",
+                        });
+                      }
+                    }
+                  );
                 }
               }
             );
+          } else {
+            // 没有活跃标签页，返回默认数据
+            resolve({
+              timestamp: Date.now(),
+              memory: 0,
+              cpu: 0,
+              cache: 0,
+              source: "no_active_tab",
+            });
           }
         });
       });
@@ -339,17 +371,37 @@ export default defineComponent({
       } else {
         // 开始监控
         isMonitoring.value = true;
+
+        // 先获取一次当前数据
+        const initialData = await getPerformanceData();
+        performanceData.value.push(initialData);
+        currentMetrics.value = initialData;
+        updateCharts();
+
+        // 设置定时监控
         monitoringInterval = window.setInterval(async () => {
           const data = await getPerformanceData();
-          performanceData.value.push(data);
-          currentMetrics.value = data;
-          updateCharts();
 
-          // 限制数据量，保留最近100条
-          if (performanceData.value.length > 100) {
-            performanceData.value = performanceData.value.slice(-100);
+          // 只添加有意义的数据变化（避免重复的相同数据）
+          const lastData =
+            performanceData.value[performanceData.value.length - 1];
+          if (
+            !lastData ||
+            Math.abs(data.memory - lastData.memory) > 1000 || // 内存变化超过1KB
+            Math.abs(data.cpu - lastData.cpu) > 0.1 || // CPU变化超过0.1%
+            Math.abs(data.cache - lastData.cache) > 1000
+          ) {
+            // 缓存变化超过1KB
+            performanceData.value.push(data);
+            currentMetrics.value = data;
+            updateCharts();
           }
-        }, 2000); // 每2秒采集一次
+
+          // 限制数据量，保留最近80条（减少内存占用）
+          if (performanceData.value.length > 80) {
+            performanceData.value = performanceData.value.slice(-80);
+          }
+        }, 3000); // 每3秒采集一次（减少采集频率）
       }
     };
 

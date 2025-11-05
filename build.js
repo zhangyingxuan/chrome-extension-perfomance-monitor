@@ -1,20 +1,34 @@
 #!/usr/bin/env node
 
 /**
- * 网站性能监控扩展构建脚本
- * 用于简化构建和部署过程
+ * 当前标签页性能监控扩展构建脚本
+ * 用于简化构建和部署过程，专注于当前标签页性能监控
  */
 
-const fs = require("fs");
-const path = require("path");
-const { execSync } = require("child_process");
+import fs from "fs";
+import path from "path";
+import { execSync } from "child_process";
+import { fileURLToPath } from "url";
+
+// 获取当前文件路径
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // 构建配置
 const config = {
   inputDir: ".",
   outputDir: "dist",
-  manifestFile: "manifest.json",
+  manifestFile: "public/manifest.json",
   packageFile: "package.json",
+  srcDir: "src",
+  publicDir: "public",
+  requiredFiles: [
+    "popup.html",
+    "manifest.json",
+    "background.js",
+    "content.js",
+    "inject.js",
+  ],
 };
 
 // 颜色输出工具
@@ -67,8 +81,14 @@ function installDependencies() {
   try {
     execSync("npm install", { stdio: "inherit" });
     success("依赖安装完成");
-  } catch (error) {
-    error("依赖安装失败");
+  } catch (err) {
+    warn("依赖安装失败，尝试使用pnpm安装...");
+    try {
+      execSync("pnpm install", { stdio: "inherit" });
+      success("依赖安装完成（使用pnpm）");
+    } catch (err2) {
+      warn("pnpm安装也失败，跳过依赖安装，直接构建...");
+    }
   }
 }
 
@@ -79,8 +99,28 @@ function buildProject() {
   try {
     execSync("npm run build", { stdio: "inherit" });
     success("项目构建完成");
-  } catch (error) {
+  } catch (err) {
     error("项目构建失败");
+  }
+}
+
+// 复制必要文件到输出目录
+function copyRequiredFiles() {
+  info("复制必要文件到输出目录...");
+
+  const filesToCopy = [
+    { src: config.manifestFile, dest: "dist/manifest.json" },
+    { src: "popup.html", dest: "dist/popup.html" },
+    { src: "public/background.js", dest: "dist/background.js" },
+  ];
+
+  for (const file of filesToCopy) {
+    if (fs.existsSync(file.src)) {
+      fs.copyFileSync(file.src, file.dest);
+      success(`复制文件: ${file.src} -> ${file.dest}`);
+    } else {
+      warn(`文件不存在: ${file.src}`);
+    }
   }
 }
 
@@ -88,39 +128,19 @@ function buildProject() {
 function validateBuild() {
   info("验证构建输出...");
 
-  const requiredOutputFiles = [
-    "popup.html",
-    "popup.js",
-    "content.js",
-    "background.js",
-    "inject.js",
-    "manifest.json",
-  ];
-
-  for (const file of requiredOutputFiles) {
+  let missingFiles = 0;
+  for (const file of config.requiredFiles) {
     const filePath = path.join(config.outputDir, file);
     if (!fs.existsSync(filePath)) {
       warn(`构建输出文件缺失: ${file}`);
+      missingFiles++;
     }
   }
 
-  success("构建输出验证完成");
-}
-
-// 复制必要文件到输出目录
-function copyRequiredFiles() {
-  info("复制必要文件到输出目录...");
-
-  const filesToCopy = [config.manifestFile];
-
-  for (const file of filesToCopy) {
-    const sourcePath = path.join(config.inputDir, file);
-    const targetPath = path.join(config.outputDir, file);
-
-    if (fs.existsSync(sourcePath)) {
-      fs.copyFileSync(sourcePath, targetPath);
-      success(`复制文件: ${file}`);
-    }
+  if (missingFiles === 0) {
+    success("构建输出验证完成");
+  } else {
+    warn(`有${missingFiles}个文件缺失，但构建过程继续`);
   }
 }
 
@@ -128,7 +148,7 @@ function copyRequiredFiles() {
 function createZipPackage() {
   info("创建发布包...");
 
-  const zipName = `chrome-extension-performance-monitor-${getVersion()}.zip`;
+  const zipName = `current-tab-performance-monitor-${getVersion()}.zip`;
 
   try {
     // 使用系统zip命令创建压缩包
@@ -136,7 +156,7 @@ function createZipPackage() {
       stdio: "inherit",
     });
     success(`发布包创建完成: ${zipName}`);
-  } catch (error) {
+  } catch (err) {
     warn("ZIP包创建失败，请手动打包dist目录");
   }
 }
@@ -146,7 +166,7 @@ function getVersion() {
   try {
     const packageJson = JSON.parse(fs.readFileSync(config.packageFile, "utf8"));
     return packageJson.version || "1.0.0";
-  } catch (error) {
+  } catch (err) {
     return "1.0.0";
   }
 }
@@ -163,7 +183,7 @@ function cleanBuild() {
 
 // 显示使用说明
 function showUsage() {
-  log("\n网站性能监控扩展构建工具");
+  log("\n当前标签页性能监控扩展构建工具");
   log("=".repeat(50));
   log("使用方法: node build.js [命令]");
   log("");
@@ -184,67 +204,66 @@ function showUsage() {
 async function main() {
   const command = process.argv[2] || "build";
 
-  switch (command) {
-    case "build":
-      checkPrerequisites();
-      installDependencies();
-      buildProject();
-      copyRequiredFiles();
-      validateBuild();
-      break;
+  try {
+    switch (command) {
+      case "build":
+        checkPrerequisites();
+        installDependencies();
+        buildProject();
+        copyRequiredFiles();
+        validateBuild();
+        break;
 
-    case "clean":
-      cleanBuild();
-      break;
+      case "clean":
+        cleanBuild();
+        break;
 
-    case "install":
-      checkPrerequisites();
-      installDependencies();
-      break;
+      case "install":
+        checkPrerequisites();
+        installDependencies();
+        break;
 
-    case "package":
-      checkPrerequisites();
-      installDependencies();
-      buildProject();
-      copyRequiredFiles();
-      validateBuild();
-      createZipPackage();
-      break;
+      case "package":
+        checkPrerequisites();
+        installDependencies();
+        buildProject();
+        copyRequiredFiles();
+        validateBuild();
+        createZipPackage();
+        break;
 
-    case "help":
-    case "--help":
-    case "-h":
-      showUsage();
-      break;
+      case "help":
+      case "--help":
+      case "-h":
+        showUsage();
+        break;
 
-    default:
-      error(`未知命令: ${command}`);
-  }
+      default:
+        error(`未知命令: ${command}`);
+    }
 
-  log("\n构建过程完成！");
+    log("\n构建过程完成！");
 
-  if (command === "build" || command === "package") {
-    log("");
-    log("下一步操作:");
-    log("1. 打开Chrome浏览器，进入 chrome://extensions/");
-    log('2. 开启"开发者模式"');
-    log('3. 点击"加载已解压的扩展程序"');
-    log("4. 选择项目根目录下的 dist 文件夹");
-    log("5. 扩展安装完成，开始使用！");
+    if (command === "build" || command === "package") {
+      log("");
+      log("下一步操作:");
+      log("1. 打开Chrome浏览器，进入 chrome://extensions/");
+      log('2. 开启"开发者模式"');
+      log('3. 点击"加载已解压的扩展程序"');
+      log("4. 选择项目根目录下的 dist 文件夹");
+      log("5. 扩展安装完成，开始监控当前标签页性能！");
+    }
+  } catch (err) {
+    error(`构建过程出错: ${err.message}`);
   }
 }
 
 // 启动构建过程
-if (require.main === module) {
-  main().catch((error) => {
-    console.error("构建过程出错:", error);
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error("构建过程出错:", err);
     process.exit(1);
   });
 }
 
-module.exports = {
-  buildProject,
-  cleanBuild,
-  installDependencies,
-  createZipPackage,
-};
+export { buildProject, cleanBuild, installDependencies, createZipPackage };
