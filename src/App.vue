@@ -310,7 +310,7 @@ export default defineComponent({
     function openTool(tool: string) {
       switch (tool) {
         case 'performance':
-          chrome.tabs.create({ url: 'chrome://inspect/#monitors' })
+          showBatchResult('F12 打开 DevTools → Ctrl+Shift+P → 输入 "Show Performance Monitor"', 'success')
           break
         case 'taskManager':
           navigator.clipboard.writeText('Shift+Esc').then(() => {
@@ -320,7 +320,7 @@ export default defineComponent({
           })
           break
         case 'rendering':
-          showBatchResult('请按 F12 打开 DevTools → Ctrl+Shift+P → 输入 "Rendering"', 'success')
+          showBatchResult('F12 打开 DevTools → Ctrl+Shift+P → 输入 "Rendering"', 'success')
           break
       }
     }
