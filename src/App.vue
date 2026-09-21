@@ -121,6 +121,7 @@
           </span>
           <button
             class="btn-discard"
+            :class="{ 'is-slept': tab.discarded }"
             :disabled="!canDiscardTab(tab)"
             :title="getDiscardTooltip(tab)"
             @click="discardTab(tab.tabId)"
@@ -286,7 +287,8 @@ export default defineComponent({
     // ===== 休眠逻辑 =====
 
     function canDiscardTab(tab: TabInfo): boolean {
-      return !tab.isActive && !tab.pinned && !tab.audible && !tab.discarded;
+      // 与复选框一致：暂无内存数据时不允许休眠
+      return isDiscardable(tab);
     }
 
     function getDiscardTooltip(tab: TabInfo): string {
@@ -294,10 +296,15 @@ export default defineComponent({
       if (tab.pinned) return "无法休眠固定标签页";
       if (tab.audible) return "无法休眠正在播放音频的标签页";
       if (tab.discarded) return "已休眠";
+      if (tab.memoryBytes == null) return "暂无内存数据，暂不可休眠";
       return "点击休眠此标签页";
     }
 
     async function discardTab(tabId: number) {
+      const tab = tabs.value.find((t) => t.tabId === tabId);
+      // 已休眠的标签页不允许再次休眠
+      if (tab && tab.discarded) return;
+
       const result = await new Promise<{ success: boolean; error?: string }>(
         (resolve) => {
           chrome.runtime.sendMessage(
@@ -314,7 +321,6 @@ export default defineComponent({
       );
 
       if (result.success) {
-        const tab = tabs.value.find((t) => t.tabId === tabId);
         if (tab) tab.discarded = true;
         selectedIds.value.delete(tabId);
         selectedIds.value = new Set(selectedIds.value);
@@ -874,6 +880,22 @@ export default defineComponent({
   border-color: #d9d9d9;
   color: #bbb;
   cursor: not-allowed;
+}
+
+/* 已休眠：中立灰徽标态，明确不可点击 */
+.btn-discard.is-slept,
+.btn-discard.is-slept:disabled {
+  border-color: #d9d9d9;
+  background: #f5f5f5;
+  color: #999;
+  cursor: default;
+  opacity: 1;
+}
+
+.btn-discard.is-slept:hover:not(:disabled),
+.btn-discard.is-slept:hover {
+  background: #f5f5f5;
+  color: #999;
 }
 
 /* 底部汇总 */

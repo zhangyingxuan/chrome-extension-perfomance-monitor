@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
   "name": "内存监控",
-  "version": "2.0.0",
+  "version": "1.0.0",
   "description": "Tab 内存监控与一键休眠",
   "permissions": ["activeTab", "tabs", "scripting", "storage"],
   "host_permissions": ["<all_urls>"],
   "icons": {
     "16": "sources/memory16.png",
-    "64": "sources/memory64.png",
+    "48": "sources/memory48.png",
     "128": "sources/memory128.png",
     "256": "sources/memory256.png"
   },
@@ -16,7 +16,7 @@
     "default_title": "内存监控",
     "default_icon": {
       "16": "sources/memory16.png",
-      "64": "sources/memory64.png"
+      "48": "sources/memory48.png"
     }
   },
   "background": {
