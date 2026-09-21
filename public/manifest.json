@@ -1,22 +1,22 @@
 {
   "manifest_version": 3,
-  "name": "性能监控",
+  "name": "内存监控",
   "version": "2.0.0",
   "description": "Tab 内存监控与一键休眠",
-  "permissions": ["activeTab", "tabs", "scripting"],
+  "permissions": ["activeTab", "tabs", "scripting", "storage"],
   "host_permissions": ["<all_urls>"],
   "icons": {
-    "16": "sources/ic-chrome-16.png",
-    "64": "sources/tabs64.png",
-    "128": "sources/tabs128.png",
-    "256": "sources/tabs256.png"
+    "16": "sources/memory16.png",
+    "64": "sources/memory64.png",
+    "128": "sources/memory128.png",
+    "256": "sources/memory256.png"
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "性能监控",
+    "default_title": "内存监控",
     "default_icon": {
-      "16": "sources/ic-chrome-16.png",
-      "64": "sources/tabs64.png"
+      "16": "sources/memory16.png",
+      "64": "sources/memory64.png"
     }
   },
   "background": {

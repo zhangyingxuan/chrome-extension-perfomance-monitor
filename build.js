@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * 当前标签页性能监控扩展构建脚本
- * 用于简化构建和部署过程，专注于当前标签页性能监控
+ * 当前标签页内存监控扩展构建脚本
+ * 用于简化构建和部署过程，专注于当前标签页内存监控
  */
 
 import fs from "fs";
@@ -131,7 +131,10 @@ function copyRequiredFiles() {
   if (fs.existsSync(sourcesSrc)) {
     fs.mkdirSync(sourcesDest, { recursive: true });
     for (const file of fs.readdirSync(sourcesSrc)) {
-      fs.copyFileSync(path.join(sourcesSrc, file), path.join(sourcesDest, file));
+      fs.copyFileSync(
+        path.join(sourcesSrc, file),
+        path.join(sourcesDest, file),
+      );
     }
     success(`复制目录: ${sourcesSrc} -> ${sourcesDest}`);
   }
@@ -196,7 +199,7 @@ function cleanBuild() {
 
 // 显示使用说明
 function showUsage() {
-  log("\n当前标签页性能监控扩展构建工具");
+  log("\n当前标签页内存监控扩展构建工具");
   log("=".repeat(50));
   log("使用方法: node build.js [命令]");
   log("");

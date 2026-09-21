@@ -2,6 +2,63 @@
 const tabCache = new Map();
 let activeTabId = null;
 
+// ===== 自动休眠 =====
+
+const autoDiscard = {
+  enabled: false,
+  thresholdMinutes: 30,
+};
+
+const tabLastActive = new Map();
+
+async function loadAutoDiscardSettings() {
+  try {
+    const data = await chrome.storage.local.get("autoDiscard");
+    if (data.autoDiscard) {
+      autoDiscard.enabled = !!data.autoDiscard.enabled;
+      autoDiscard.thresholdMinutes = data.autoDiscard.thresholdMinutes || 30;
+    }
+  } catch {}
+}
+
+async function saveAutoDiscardSettings() {
+  try {
+    await chrome.storage.local.set({ autoDiscard: { ...autoDiscard } });
+  } catch {}
+}
+
+function markTabActive(tabId) {
+  tabLastActive.set(tabId, Date.now());
+}
+
+async function runAutoDiscard() {
+  if (!autoDiscard.enabled) return;
+
+  const now = Date.now();
+  const thresholdMs = autoDiscard.thresholdMinutes * 60 * 1000;
+  const allTabs = await chrome.tabs.query({});
+
+  for (const tab of allTabs) {
+    if (tab.id == null) continue;
+    if (tab.id === activeTabId) continue;
+    if (tab.pinned || tab.audible || tab.discarded) continue;
+
+    const lastActive = tabLastActive.get(tab.id);
+    if (!lastActive) continue;
+
+    if (now - lastActive >= thresholdMs) {
+      const result = await chrome.tabs.discard(tab.id).catch(() => false);
+      if (result) {
+        const cached = tabCache.get(tab.id);
+        if (cached) {
+          cached.discarded = true;
+          tabCache.set(tab.id, cached);
+        }
+      }
+    }
+  }
+}
+
 // ===== 工具函数 =====
 
 function getDomain(url) {
@@ -196,6 +253,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       handleBatchDiscard(request.tabIds).then(sendResponse);
       return true;
     }
+
+    case "GET_AUTO_DISCARD": {
+      sendResponse({
+        enabled: autoDiscard.enabled,
+        thresholdMinutes: autoDiscard.thresholdMinutes,
+      });
+      return false;
+    }
+
+    case "SET_AUTO_DISCARD": {
+      if (request.enabled != null) autoDiscard.enabled = !!request.enabled;
+      if (request.thresholdMinutes != null)
+        autoDiscard.thresholdMinutes = Math.max(
+          1,
+          Math.min(180, request.thresholdMinutes),
+        );
+      saveAutoDiscardSettings();
+      sendResponse({
+        enabled: autoDiscard.enabled,
+        thresholdMinutes: autoDiscard.thresholdMinutes,
+      });
+      return false;
+    }
   }
 });
 
@@ -242,11 +322,13 @@ async function handleBatchDiscard(tabIds) {
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
   activeTabId = activeInfo.tabId;
+  markTabActive(activeInfo.tabId);
   collectActiveTab();
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "complete") {
+    markTabActive(tabId);
     const cached = tabCache.get(tabId);
     if (cached) {
       cached.discarded = false;
@@ -260,6 +342,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabCache.delete(tabId);
+  tabLastActive.delete(tabId);
   if (tabId === activeTabId) {
     activeTabId = null;
     updateBadge();
@@ -280,6 +363,7 @@ chrome.windows?.onFocusChanged?.addListener((windowId) => {
 
 let activeCollecting = false;
 let allCollecting = false;
+let autoDiscardRunning = false;
 
 setInterval(async () => {
   if (activeCollecting) return;
@@ -301,11 +385,31 @@ setInterval(async () => {
   }
 }, 3000);
 
+setInterval(async () => {
+  if (autoDiscardRunning) return;
+  autoDiscardRunning = true;
+  try {
+    await runAutoDiscard();
+  } finally {
+    autoDiscardRunning = false;
+  }
+}, 30000);
+
 // ===== 初始化 =====
 
 async function initExtension() {
+  await loadAutoDiscardSettings();
+
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab) activeTabId = tab.id;
+  if (tab) {
+    activeTabId = tab.id;
+    markTabActive(tab.id);
+  }
+
+  const allTabs = await chrome.tabs.query({});
+  for (const t of allTabs) {
+    if (t.id != null) markTabActive(t.id);
+  }
 
   await collectActiveTab();
   await collectAllTabs();

@@ -1,8 +1,8 @@
-# 性能监控插件重新设计 实施计划
+# 内存监控插件重新设计 实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将现有 Chrome 性能监控扩展重新设计为轻量级 popover，核心功能为浏览器工具入口 + 全 Tab 内存排行榜（含单个/批量休眠）。
+**Goal:** 将现有 Chrome 内存监控扩展重新设计为轻量级 popover，核心功能为浏览器工具入口 + 全 Tab 内存排行榜（含单个/批量休眠）。
 
 **Architecture:** 去掉 content script 和 inject script，background service worker 直接通过 `chrome.scripting.executeScript`（MAIN world）注入各 tab 采集 `performance.memory`。1s 定时器采集 active tab 更新 badge，3s 定时器采集全部 tab 更新排行榜缓存。Popup 为 Vue 3 组件，每 1s 轮询 background 获取最新数据。
 
@@ -32,25 +32,26 @@
 
 ## File Structure
 
-| 操作 | 文件 | 职责 |
-|------|------|------|
-| 删除 | `src/content.ts` | 不再需要 content script |
-| 删除 | `src/inject.ts` | 不再需要页面注入脚本 |
-| 删除 | `src/App.vue` | 完全重写 |
-| 删除 | `popup.css` | 完全重写 |
-| 重写 | `public/background.js` | 持续采集、badge 更新、discard 处理、消息响应 |
-| 重写 | `popup.html` | 450px popover 基础 HTML |
-| 重写 | `popup.css` | 全新样式 |
-| 重写 | `src/App.vue` | 全新 Vue 组件：工具入口 + 排行榜 + 批量操作 |
+| 操作 | 文件                   | 职责                                                    |
+| ---- | ---------------------- | ------------------------------------------------------- |
+| 删除 | `src/content.ts`       | 不再需要 content script                                 |
+| 删除 | `src/inject.ts`        | 不再需要页面注入脚本                                    |
+| 删除 | `src/App.vue`          | 完全重写                                                |
+| 删除 | `popup.css`            | 完全重写                                                |
+| 重写 | `public/background.js` | 持续采集、badge 更新、discard 处理、消息响应            |
+| 重写 | `popup.html`           | 450px popover 基础 HTML                                 |
+| 重写 | `popup.css`            | 全新样式                                                |
+| 重写 | `src/App.vue`          | 全新 Vue 组件：工具入口 + 排行榜 + 批量操作             |
 | 修改 | `public/manifest.json` | 移除 content_scripts/web_accessible_resources/downloads |
-| 修改 | `vite.config.ts` | 移除 content/inject 入口 |
-| 修改 | `package.json` | 移除 chart.js 依赖 |
+| 修改 | `vite.config.ts`       | 移除 content/inject 入口                                |
+| 修改 | `package.json`         | 移除 chart.js 依赖                                      |
 
 ---
 
 ### Task 1: 清理项目结构
 
 **Files:**
+
 - Delete: `src/content.ts`
 - Delete: `src/inject.ts`
 - Modify: `public/manifest.json`
@@ -70,23 +71,23 @@ rm src/content.ts src/inject.ts
 ```json
 {
   "manifest_version": 3,
-  "name": "性能监控",
+  "name": "内存监控",
   "version": "2.0.0",
   "description": "Tab 内存监控与一键休眠",
   "permissions": ["activeTab", "tabs", "scripting", "storage"],
   "host_permissions": ["<all_urls>"],
   "icons": {
-    "16": "sources/ic-chrome-16.png",
-    "64": "sources/tabs64.png",
+    "16": "sources/memory16.png",
+    "64": "sources/memory64.png",
     "128": "sources/tabs128.png",
     "256": "sources/tabs256.png"
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "性能监控",
+    "default_title": "内存监控",
     "default_icon": {
-      "16": "sources/ic-chrome-16.png",
-      "64": "sources/tabs64.png"
+      "16": "sources/memory16.png",
+      "64": "sources/memory64.png"
     }
   },
   "background": {
@@ -96,6 +97,7 @@ rm src/content.ts src/inject.ts
 ```
 
 变更点：
+
 - 移除 `downloads` 和 `contextMenus` 权限
 - 移除 `content_scripts` 配置
 - 移除 `web_accessible_resources`
@@ -106,33 +108,33 @@ rm src/content.ts src/inject.ts
 用以下内容替换 `vite.config.ts`：
 
 ```typescript
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import { fileURLToPath } from 'node:url'
+import { defineConfig } from "vite";
+import vue from "@vitejs/plugin-vue";
+import { fileURLToPath } from "node:url";
 
 export default defineConfig({
-  base: './',
+  base: "./",
   plugins: [vue()],
   build: {
     rollupOptions: {
       input: {
-        popup: 'popup.html'
+        popup: "popup.html",
       },
       output: {
-        entryFileNames: '[name].js',
-        chunkFileNames: '[name].js',
-        assetFileNames: '[name].[ext]'
-      }
+        entryFileNames: "[name].js",
+        chunkFileNames: "[name].js",
+        assetFileNames: "[name].[ext]",
+      },
     },
-    outDir: 'dist',
-    emptyOutDir: true
+    outDir: "dist",
+    emptyOutDir: true,
   },
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
-    }
-  }
-})
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
+});
 ```
 
 - [ ] **Step 4: 更新 package.json**
@@ -191,9 +193,11 @@ git commit -m "refactor: 清理项目结构，移除 content/inject script 和 c
 ### Task 2: 重写 Background Service Worker
 
 **Files:**
+
 - Rewrite: `public/background.js`
 
 **Interfaces:**
+
 - Produces: background 消息协议（供 popup 调用）
   - `GET_ALL_TABS` → `{ tabs: TabInfo[], activeTabId: number }`
   - `DISCARD_TAB` `{ tabId }` → `{ success, error? }`
@@ -214,23 +218,23 @@ function getDomain(url) {
   try {
     return new URL(url).hostname;
   } catch {
-    return '';
+    return "";
   }
 }
 
 function formatBadgeText(bytes) {
-  if (bytes == null || bytes === 0) return '--';
+  if (bytes == null || bytes === 0) return "--";
   const mb = bytes / (1024 * 1024);
-  if (mb >= 1024) return (mb / 1024).toFixed(1) + 'GB';
-  return Math.round(mb) + 'MB';
+  if (mb >= 1024) return (mb / 1024).toFixed(1) + "GB";
+  return Math.round(mb) + "MB";
 }
 
 function getBadgeColor(bytes) {
-  if (bytes == null) return '#9E9E9E';
+  if (bytes == null) return "#9E9E9E";
   const mb = bytes / (1024 * 1024);
-  if (mb < 200) return '#4CAF50';
-  if (mb < 500) return '#FF9800';
-  return '#F44336';
+  if (mb < 200) return "#4CAF50";
+  if (mb < 500) return "#FF9800";
+  return "#F44336";
 }
 
 // ===== 内存采集 =====
@@ -245,7 +249,7 @@ async function collectTabMemory(tabId) {
         }
         return null;
       },
-      world: 'MAIN'
+      world: "MAIN",
     });
     if (results && results[0] && results[0].result != null) {
       return results[0].result;
@@ -258,18 +262,22 @@ async function collectTabMemory(tabId) {
 
 async function updateBadge() {
   if (activeTabId == null) {
-    await chrome.action.setBadgeText({ text: '--' });
-    await chrome.action.setBadgeBackgroundColor({ color: '#9E9E9E' });
+    await chrome.action.setBadgeText({ text: "--" });
+    await chrome.action.setBadgeBackgroundColor({ color: "#9E9E9E" });
     return;
   }
 
   const cached = tabCache.get(activeTabId);
   if (cached && cached.memoryBytes != null) {
-    await chrome.action.setBadgeText({ text: formatBadgeText(cached.memoryBytes) });
-    await chrome.action.setBadgeBackgroundColor({ color: getBadgeColor(cached.memoryBytes) });
+    await chrome.action.setBadgeText({
+      text: formatBadgeText(cached.memoryBytes),
+    });
+    await chrome.action.setBadgeBackgroundColor({
+      color: getBadgeColor(cached.memoryBytes),
+    });
   } else {
-    await chrome.action.setBadgeText({ text: '--' });
-    await chrome.action.setBadgeBackgroundColor({ color: '#9E9E9E' });
+    await chrome.action.setBadgeText({ text: "--" });
+    await chrome.action.setBadgeBackgroundColor({ color: "#9E9E9E" });
   }
 }
 
@@ -284,13 +292,18 @@ async function collectActiveTab() {
 
   tabCache.set(activeTabId, {
     tabId: activeTabId,
-    title: tab.title || '',
-    url: tab.url || '',
-    domain: getDomain(tab.url || ''),
-    favIconUrl: tab.favIconUrl || '',
-    memoryBytes: memory != null ? memory : (existing.discarded ? existing.memoryBytes : null),
+    title: tab.title || "",
+    url: tab.url || "",
+    domain: getDomain(tab.url || ""),
+    favIconUrl: tab.favIconUrl || "",
+    memoryBytes:
+      memory != null
+        ? memory
+        : existing.discarded
+          ? existing.memoryBytes
+          : null,
     discarded: existing.discarded || false,
-    lastUpdated: Date.now()
+    lastUpdated: Date.now(),
   });
 
   await updateBadge();
@@ -307,18 +320,23 @@ async function collectAllTabs() {
 
     tabCache.set(tab.id, {
       tabId: tab.id,
-      title: tab.title || '',
-      url: tab.url || '',
-      domain: getDomain(tab.url || ''),
-      favIconUrl: tab.favIconUrl || '',
-      memoryBytes: memory != null ? memory : (existing.discarded ? existing.memoryBytes : null),
+      title: tab.title || "",
+      url: tab.url || "",
+      domain: getDomain(tab.url || ""),
+      favIconUrl: tab.favIconUrl || "",
+      memoryBytes:
+        memory != null
+          ? memory
+          : existing.discarded
+            ? existing.memoryBytes
+            : null,
       discarded: existing.discarded || false,
-      lastUpdated: Date.now()
+      lastUpdated: Date.now(),
     });
   }
 
   // 清理已关闭的 tab
-  const openTabIds = new Set(allTabs.map(t => t.id));
+  const openTabIds = new Set(allTabs.map((t) => t.id));
   for (const id of tabCache.keys()) {
     if (!openTabIds.has(id)) {
       tabCache.delete(id);
@@ -330,23 +348,23 @@ async function collectAllTabs() {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   switch (request.type) {
-    case 'GET_ALL_TABS': {
-      const tabs = Array.from(tabCache.values()).map(t => ({
+    case "GET_ALL_TABS": {
+      const tabs = Array.from(tabCache.values()).map((t) => ({
         ...t,
         isActive: t.tabId === activeTabId,
         pinned: t.tabId ? false : false,
-        audible: t.tabId ? false : false
+        audible: t.tabId ? false : false,
       }));
 
       // 补充 pinned/audible 实时状态
       chrome.tabs.query({}, (allTabs) => {
-        const tabMap = new Map(allTabs.map(t => [t.id, t]));
-        const enrichedTabs = tabs.map(t => {
+        const tabMap = new Map(allTabs.map((t) => [t.id, t]));
+        const enrichedTabs = tabs.map((t) => {
           const liveTab = tabMap.get(t.tabId);
           return {
             ...t,
             pinned: liveTab?.pinned || false,
-            audible: liveTab?.audible || false
+            audible: liveTab?.audible || false,
           };
         });
         sendResponse({ tabs: enrichedTabs, activeTabId });
@@ -354,13 +372,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
     }
 
-    case 'DISCARD_TAB': {
+    case "DISCARD_TAB": {
       const tabId = request.tabId;
       handleDiscardTab(tabId).then(sendResponse);
       return true;
     }
 
-    case 'BATCH_DISCARD': {
+    case "BATCH_DISCARD": {
       handleBatchDiscard(request.tabIds).then(sendResponse);
       return true;
     }
@@ -370,13 +388,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function handleDiscardTab(tabId) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab && tab.id === tabId) {
-    return { success: false, error: '无法休眠当前标签页' };
+    return { success: false, error: "无法休眠当前标签页" };
   }
 
   const tabInfo = await chrome.tabs.get(tabId).catch(() => null);
-  if (!tabInfo) return { success: false, error: '标签页已关闭' };
-  if (tabInfo.pinned) return { success: false, error: '无法休眠固定标签页' };
-  if (tabInfo.audible) return { success: false, error: '无法休眠正在播放音频的标签页' };
+  if (!tabInfo) return { success: false, error: "标签页已关闭" };
+  if (tabInfo.pinned) return { success: false, error: "无法休眠固定标签页" };
+  if (tabInfo.audible)
+    return { success: false, error: "无法休眠正在播放音频的标签页" };
 
   const result = await chrome.tabs.discard(tabId).catch(() => false);
   if (result) {
@@ -387,19 +406,19 @@ async function handleDiscardTab(tabId) {
     }
     return { success: true };
   }
-  return { success: false, error: '休眠失败' };
+  return { success: false, error: "休眠失败" };
 }
 
 async function handleBatchDiscard(tabIds) {
   const results = [];
   const sorted = tabIds
-    .map(id => ({ id, memory: tabCache.get(id)?.memoryBytes || 0 }))
+    .map((id) => ({ id, memory: tabCache.get(id)?.memoryBytes || 0 }))
     .sort((a, b) => b.memory - a.memory);
 
   for (const item of sorted) {
     const result = await handleDiscardTab(item.id);
     results.push({ tabId: item.id, ...result });
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 200));
   }
 
   return { results };
@@ -413,7 +432,7 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.status === 'complete') {
+  if (changeInfo.status === "complete") {
     const cached = tabCache.get(tabId);
     if (cached) {
       cached.discarded = false;
@@ -451,13 +470,21 @@ let allCollecting = false;
 setInterval(async () => {
   if (activeCollecting) return;
   activeCollecting = true;
-  try { await collectActiveTab(); } finally { activeCollecting = false; }
+  try {
+    await collectActiveTab();
+  } finally {
+    activeCollecting = false;
+  }
 }, 1000);
 
 setInterval(async () => {
   if (allCollecting) return;
   allCollecting = true;
-  try { await collectAllTabs(); } finally { allCollecting = false; }
+  try {
+    await collectAllTabs();
+  } finally {
+    allCollecting = false;
+  }
 }, 3000);
 
 // ===== 初始化 =====
@@ -494,11 +521,13 @@ git commit -m "feat: 重写 background service worker，支持持续内存采集
 ### Task 3: 重写 Popup UI
 
 **Files:**
+
 - Rewrite: `popup.html`
 - Rewrite: `popup.css`
 - Rewrite: `src/App.vue`
 
 **Interfaces:**
+
 - Consumes: background 消息协议
   - `chrome.runtime.sendMessage({ type: 'GET_ALL_TABS' })` → `{ tabs, activeTabId }`
   - `chrome.runtime.sendMessage({ type: 'DISCARD_TAB', tabId })` → `{ success, error? }`
@@ -512,7 +541,7 @@ git commit -m "feat: 重写 background service worker，支持持续内存采集
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>性能监控</title>
+    <title>内存监控</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
@@ -535,7 +564,8 @@ body {
   width: 450px;
   max-height: 550px;
   overflow-y: auto;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: #f8f9fa;
   color: #333;
   font-size: 13px;
@@ -555,7 +585,7 @@ body {
   <div class="monitor">
     <!-- 标题栏 -->
     <div class="header">
-      <span class="header-title">性能监控</span>
+      <span class="header-title">内存监控</span>
       <span class="header-memory">当前: {{ activeTabMemoryDisplay }}</span>
     </div>
 
@@ -597,12 +627,16 @@ body {
             :disabled="selectedIds.length === 0 || batchDiscarding"
             @click="batchDiscard"
           >
-            {{ batchDiscarding ? '处理中...' : `批量休眠 (${selectedIds.length})` }}
+            {{
+              batchDiscarding ? "处理中..." : `批量休眠 (${selectedIds.length})`
+            }}
           </button>
         </div>
       </div>
 
-      <div class="data-tip">数据仅为 JS 堆内存，不含渲染进程开销、GPU 内存等</div>
+      <div class="data-tip">
+        数据仅为 JS 堆内存，不含渲染进程开销、GPU 内存等
+      </div>
 
       <div class="tab-list">
         <div
@@ -611,7 +645,7 @@ body {
           class="tab-item"
           :class="{
             'is-active': tab.isActive,
-            'is-discarded': tab.discarded
+            'is-discarded': tab.discarded,
           }"
         >
           <div class="tab-left">
@@ -625,16 +659,23 @@ body {
               v-if="tab.favIconUrl"
               :src="tab.favIconUrl"
               class="favicon"
-              @error="(e) => e.target.style.visibility = 'hidden'"
+              @error="(e) => (e.target.style.visibility = 'hidden')"
             />
             <span v-else class="favicon-placeholder">&#127760;</span>
-            <span class="domain">{{ tab.domain || '--' }}</span>
+            <span class="domain">{{ tab.domain || "--" }}</span>
           </div>
 
           <div class="tab-center">
             <span class="tab-title" :title="tab.title">{{ tab.title }}</span>
-            <span class="memory-value" :class="{ 'memory-na': tab.memoryBytes == null }">
-              {{ tab.discarded ? formatMemory(tab.memoryBytes) + ' (已休眠)' : formatMemory(tab.memoryBytes) }}
+            <span
+              class="memory-value"
+              :class="{ 'memory-na': tab.memoryBytes == null }"
+            >
+              {{
+                tab.discarded
+                  ? formatMemory(tab.memoryBytes) + " (已休眠)"
+                  : formatMemory(tab.memoryBytes)
+              }}
             </span>
           </div>
 
@@ -645,7 +686,7 @@ body {
               :title="getDiscardTooltip(tab)"
               @click="discardTab(tab.tabId)"
             >
-              {{ tab.discarded ? '已休眠' : '休眠' }}
+              {{ tab.discarded ? "已休眠" : "休眠" }}
             </button>
           </div>
         </div>
@@ -654,241 +695,278 @@ body {
 
     <!-- 底部汇总 -->
     <div class="summary">
-      已勾选 {{ selectedIds.size }} 个 &middot;
-      共 {{ sortedTabs.length }} 个标签页 &middot;
-      总计 {{ totalMemoryDisplay }} &middot;
-      可释放 ~{{ reclaimableDisplay }}
+      已勾选 {{ selectedIds.size }} 个 &middot; 共
+      {{ sortedTabs.length }} 个标签页 &middot; 总计
+      {{ totalMemoryDisplay }} &middot; 可释放 ~{{ reclaimableDisplay }}
     </div>
 
     <!-- 批量操作结果提示 -->
-    <div v-if="batchResultMessage" class="batch-result" :class="batchResultType">
+    <div
+      v-if="batchResultMessage"
+      class="batch-result"
+      :class="batchResultType"
+    >
       {{ batchResultMessage }}
     </div>
   </div>
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, computed, onMounted, onUnmounted, reactive } from 'vue'
+import {
+  defineComponent,
+  ref,
+  computed,
+  onMounted,
+  onUnmounted,
+  reactive,
+} from "vue";
 
 interface TabInfo {
-  tabId: number
-  title: string
-  url: string
-  domain: string
-  favIconUrl: string
-  memoryBytes: number | null
-  discarded: boolean
-  lastUpdated: number
-  isActive: boolean
-  pinned: boolean
-  audible: boolean
+  tabId: number;
+  title: string;
+  url: string;
+  domain: string;
+  favIconUrl: string;
+  memoryBytes: number | null;
+  discarded: boolean;
+  lastUpdated: number;
+  isActive: boolean;
+  pinned: boolean;
+  audible: boolean;
 }
 
 export default defineComponent({
-  name: 'App',
+  name: "App",
   setup() {
-    const tabs = ref<TabInfo[]>([])
-    const activeTabId = ref<number | null>(null)
-    const selectedIds = ref<Set<number>>(new Set())
-    const batchDiscarding = ref(false)
-    const batchResultMessage = ref('')
-    const batchResultType = ref<'success' | 'error'>('success')
-    let pollTimer: number | null = null
-    let batchResultTimer: number | null = null
+    const tabs = ref<TabInfo[]>([]);
+    const activeTabId = ref<number | null>(null);
+    const selectedIds = ref<Set<number>>(new Set());
+    const batchDiscarding = ref(false);
+    const batchResultMessage = ref("");
+    const batchResultType = ref<"success" | "error">("success");
+    let pollTimer: number | null = null;
+    let batchResultTimer: number | null = null;
 
     // ===== 数据获取 =====
 
     async function fetchTabs() {
-      return new Promise<{ tabs: TabInfo[]; activeTabId: number | null }>((resolve) => {
-        chrome.runtime.sendMessage({ type: 'GET_ALL_TABS' }, (response) => {
-          if (chrome.runtime.lastError) {
-            resolve({ tabs: [], activeTabId: null })
-            return
-          }
-          resolve(response || { tabs: [], activeTabId: null })
-        })
-      })
+      return new Promise<{ tabs: TabInfo[]; activeTabId: number | null }>(
+        (resolve) => {
+          chrome.runtime.sendMessage({ type: "GET_ALL_TABS" }, (response) => {
+            if (chrome.runtime.lastError) {
+              resolve({ tabs: [], activeTabId: null });
+              return;
+            }
+            resolve(response || { tabs: [], activeTabId: null });
+          });
+        },
+      );
     }
 
     async function refreshData() {
-      const data = await fetchTabs()
-      tabs.value = data.tabs
-      activeTabId.value = data.activeTabId
+      const data = await fetchTabs();
+      tabs.value = data.tabs;
+      activeTabId.value = data.activeTabId;
     }
 
     // ===== 排序后的 tab 列表 =====
 
     const sortedTabs = computed(() => {
       return [...tabs.value].sort((a, b) => {
-        const aMem = a.memoryBytes ?? -1
-        const bMem = b.memoryBytes ?? -1
-        return bMem - aMem
-      })
-    })
+        const aMem = a.memoryBytes ?? -1;
+        const bMem = b.memoryBytes ?? -1;
+        return bMem - aMem;
+      });
+    });
 
     // ===== 显示值 =====
 
     const activeTabMemoryDisplay = computed(() => {
-      const active = tabs.value.find(t => t.isActive)
-      return formatMemory(active?.memoryBytes ?? null)
-    })
+      const active = tabs.value.find((t) => t.isActive);
+      return formatMemory(active?.memoryBytes ?? null);
+    });
 
     const totalMemoryDisplay = computed(() => {
-      const total = tabs.value.reduce((sum, t) => sum + (t.memoryBytes || 0), 0)
-      return formatMemory(total || null)
-    })
+      const total = tabs.value.reduce(
+        (sum, t) => sum + (t.memoryBytes || 0),
+        0,
+      );
+      return formatMemory(total || null);
+    });
 
     const reclaimableDisplay = computed(() => {
-      let total = 0
+      let total = 0;
       for (const id of selectedIds.value) {
-        const tab = tabs.value.find(t => t.tabId === id)
-        if (tab) total += tab.memoryBytes || 0
+        const tab = tabs.value.find((t) => t.tabId === id);
+        if (tab) total += tab.memoryBytes || 0;
       }
-      return formatMemory(total || null)
-    })
+      return formatMemory(total || null);
+    });
 
     function formatMemory(bytes: number | null): string {
-      if (bytes == null || bytes === 0) return '--'
-      const mb = bytes / (1024 * 1024)
-      if (mb >= 1024) return (mb / 1024).toFixed(1) + 'GB'
-      return Math.round(mb) + 'MB'
+      if (bytes == null || bytes === 0) return "--";
+      const mb = bytes / (1024 * 1024);
+      if (mb >= 1024) return (mb / 1024).toFixed(1) + "GB";
+      return Math.round(mb) + "MB";
     }
 
     // ===== 选择逻辑 =====
 
     const discardableTabs = computed(() => {
-      return tabs.value.filter(t => isDiscardable(t))
-    })
+      return tabs.value.filter((t) => isDiscardable(t));
+    });
 
     const allDiscardableSelected = computed(() => {
-      const discardable = discardableTabs.value
-      if (discardable.length === 0) return false
-      return discardable.every(t => selectedIds.value.has(t.tabId))
-    })
+      const discardable = discardableTabs.value;
+      if (discardable.length === 0) return false;
+      return discardable.every((t) => selectedIds.value.has(t.tabId));
+    });
 
     function isDiscardable(tab: TabInfo): boolean {
-      return !tab.isActive && !tab.pinned && !tab.audible && !tab.discarded && tab.memoryBytes != null
+      return (
+        !tab.isActive &&
+        !tab.pinned &&
+        !tab.audible &&
+        !tab.discarded &&
+        tab.memoryBytes != null
+      );
     }
 
     function toggleSelect(tabId: number) {
-      const newSet = new Set(selectedIds.value)
+      const newSet = new Set(selectedIds.value);
       if (newSet.has(tabId)) {
-        newSet.delete(tabId)
+        newSet.delete(tabId);
       } else {
-        newSet.add(tabId)
+        newSet.add(tabId);
       }
-      selectedIds.value = newSet
+      selectedIds.value = newSet;
     }
 
     function toggleSelectAll() {
       if (allDiscardableSelected.value) {
-        selectedIds.value = new Set()
+        selectedIds.value = new Set();
       } else {
-        selectedIds.value = new Set(discardableTabs.value.map(t => t.tabId))
+        selectedIds.value = new Set(discardableTabs.value.map((t) => t.tabId));
       }
     }
 
     // ===== 休眠逻辑 =====
 
     function canDiscardTab(tab: TabInfo): boolean {
-      return !tab.isActive && !tab.pinned && !tab.audible && !tab.discarded
+      return !tab.isActive && !tab.pinned && !tab.audible && !tab.discarded;
     }
 
     function getDiscardTooltip(tab: TabInfo): string {
-      if (tab.isActive) return '无法休眠当前标签页'
-      if (tab.pinned) return '无法休眠固定标签页'
-      if (tab.audible) return '无法休眠正在播放音频的标签页'
-      if (tab.discarded) return '已休眠'
-      return '点击休眠此标签页'
+      if (tab.isActive) return "无法休眠当前标签页";
+      if (tab.pinned) return "无法休眠固定标签页";
+      if (tab.audible) return "无法休眠正在播放音频的标签页";
+      if (tab.discarded) return "已休眠";
+      return "点击休眠此标签页";
     }
 
     async function discardTab(tabId: number) {
-      const result = await new Promise<{ success: boolean; error?: string }>((resolve) => {
-        chrome.runtime.sendMessage({ type: 'DISCARD_TAB', tabId }, (response) => {
-          if (chrome.runtime.lastError) {
-            resolve({ success: false, error: '通信失败' })
-            return
-          }
-          resolve(response || { success: false, error: '无响应' })
-        })
-      })
+      const result = await new Promise<{ success: boolean; error?: string }>(
+        (resolve) => {
+          chrome.runtime.sendMessage(
+            { type: "DISCARD_TAB", tabId },
+            (response) => {
+              if (chrome.runtime.lastError) {
+                resolve({ success: false, error: "通信失败" });
+                return;
+              }
+              resolve(response || { success: false, error: "无响应" });
+            },
+          );
+        },
+      );
 
       if (result.success) {
-        const tab = tabs.value.find(t => t.tabId === tabId)
-        if (tab) tab.discarded = true
-        selectedIds.value.delete(tabId)
-        selectedIds.value = new Set(selectedIds.value)
+        const tab = tabs.value.find((t) => t.tabId === tabId);
+        if (tab) tab.discarded = true;
+        selectedIds.value.delete(tabId);
+        selectedIds.value = new Set(selectedIds.value);
       } else {
-        showBatchResult(result.error || '休眠失败', 'error')
+        showBatchResult(result.error || "休眠失败", "error");
       }
     }
 
     async function batchDiscard() {
-      if (selectedIds.value.size === 0) return
-      batchDiscarding.value = true
+      if (selectedIds.value.size === 0) return;
+      batchDiscarding.value = true;
 
-      const result = await new Promise<{ results: { tabId: number; success: boolean; error?: string }[] }>((resolve) => {
-        chrome.runtime.sendMessage({ type: 'BATCH_DISCARD', tabIds: Array.from(selectedIds.value) }, (response) => {
-          if (chrome.runtime.lastError) {
-            resolve({ results: [] })
-            return
-          }
-          resolve(response || { results: [] })
-        })
-      })
+      const result = await new Promise<{
+        results: { tabId: number; success: boolean; error?: string }[];
+      }>((resolve) => {
+        chrome.runtime.sendMessage(
+          { type: "BATCH_DISCARD", tabIds: Array.from(selectedIds.value) },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              resolve({ results: [] });
+              return;
+            }
+            resolve(response || { results: [] });
+          },
+        );
+      });
 
-      const successCount = result.results.filter(r => r.success).length
-      const failCount = result.results.length - successCount
+      const successCount = result.results.filter((r) => r.success).length;
+      const failCount = result.results.length - successCount;
 
       if (failCount === 0) {
-        showBatchResult(`成功休眠 ${successCount} 个标签页`, 'success')
+        showBatchResult(`成功休眠 ${successCount} 个标签页`, "success");
       } else {
-        showBatchResult(`成功休眠 ${successCount} 个，失败 ${failCount} 个`, 'error')
+        showBatchResult(
+          `成功休眠 ${successCount} 个，失败 ${failCount} 个`,
+          "error",
+        );
       }
 
-      selectedIds.value = new Set()
-      batchDiscarding.value = false
-      await refreshData()
+      selectedIds.value = new Set();
+      batchDiscarding.value = false;
+      await refreshData();
     }
 
-    function showBatchResult(message: string, type: 'success' | 'error') {
-      batchResultMessage.value = message
-      batchResultType.value = type
-      if (batchResultTimer) clearTimeout(batchResultTimer)
+    function showBatchResult(message: string, type: "success" | "error") {
+      batchResultMessage.value = message;
+      batchResultType.value = type;
+      if (batchResultTimer) clearTimeout(batchResultTimer);
       batchResultTimer = window.setTimeout(() => {
-        batchResultMessage.value = ''
-      }, 3000)
+        batchResultMessage.value = "";
+      }, 3000);
     }
 
     // ===== 工具入口 =====
 
     function openTool(tool: string) {
       switch (tool) {
-        case 'performance':
-          chrome.tabs.create({ url: 'chrome://inspect/#monitors' })
-          break
-        case 'taskManager':
-          navigator.clipboard.writeText('Shift+Esc').then(() => {
-            showBatchResult('快捷键 Shift+Esc 已复制到剪贴板', 'success')
-          })
-          break
-        case 'rendering':
-          showBatchResult('请按 F12 打开 DevTools → Ctrl+Shift+P → 输入 "Rendering"', 'success')
-          break
+        case "performance":
+          chrome.tabs.create({ url: "chrome://inspect/#monitors" });
+          break;
+        case "taskManager":
+          navigator.clipboard.writeText("Shift+Esc").then(() => {
+            showBatchResult("快捷键 Shift+Esc 已复制到剪贴板", "success");
+          });
+          break;
+        case "rendering":
+          showBatchResult(
+            '请按 F12 打开 DevTools → Ctrl+Shift+P → 输入 "Rendering"',
+            "success",
+          );
+          break;
       }
     }
 
     // ===== 生命周期 =====
 
     onMounted(async () => {
-      await refreshData()
-      pollTimer = window.setInterval(refreshData, 1000)
-    })
+      await refreshData();
+      pollTimer = window.setInterval(refreshData, 1000);
+    });
 
     onUnmounted(() => {
-      if (pollTimer) clearInterval(pollTimer)
-      if (batchResultTimer) clearTimeout(batchResultTimer)
-    })
+      if (pollTimer) clearInterval(pollTimer);
+      if (batchResultTimer) clearTimeout(batchResultTimer);
+    });
 
     return {
       tabs,
@@ -911,9 +989,9 @@ export default defineComponent({
       discardTab,
       batchDiscard,
       openTool,
-    }
-  }
-})
+    };
+  },
+});
 </script>
 
 <style scoped>
@@ -1063,7 +1141,9 @@ export default defineComponent({
   display: flex;
   align-items: center;
   padding: 8px 10px;
-  transition: background 0.15s, opacity 0.15s;
+  transition:
+    background 0.15s,
+    opacity 0.15s;
 }
 
 .tab-item + .tab-item {
@@ -1218,8 +1298,14 @@ export default defineComponent({
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 </style>
 ```
@@ -1258,6 +1344,7 @@ ls dist/
 ```
 
 Expected 文件列表：
+
 - `popup.html`
 - `popup.js`
 - `popup.css`
@@ -1314,5 +1401,5 @@ Expected 文件列表：
 
 ```bash
 git add -A
-git commit -m "feat: 性能监控插件 v2.0 重新设计完成"
+git commit -m "feat: 内存监控插件 v2.0 重新设计完成"
 ```
