@@ -35,14 +35,14 @@ function drawIcon(text, bgColor) {
 
     ctx.fillStyle = bgColor;
     ctx.beginPath();
-    ctx.roundRect(0, 0, size, size, 20);
+    ctx.roundRect(0, 0, size, size, 16);
     ctx.fill();
 
     ctx.fillStyle = "#fff";
-    ctx.font = "bold 48px -apple-system, sans-serif";
+    ctx.font = "bold 80px -apple-system, Arial, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(text, size / 2, size / 2);
+    ctx.fillText(text, size / 2, size / 2 + 2);
 
     return ctx.getImageData(0, 0, size, size);
   } catch {
