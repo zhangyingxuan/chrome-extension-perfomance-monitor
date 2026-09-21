@@ -45,3 +45,4 @@ Thumbs.db
 # Chrome扩展开发
 *.crx
 *.pem
+.pnpm-store

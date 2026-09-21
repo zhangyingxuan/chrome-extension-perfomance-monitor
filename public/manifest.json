@@ -1,28 +1,25 @@
 {
   "manifest_version": 3,
-  "name": "网站性能监控扩展",
-  "version": "1.0.0",
-  "description": "零配置、一键启动的网站运行时性能监控工具",
-  "permissions": ["activeTab", "storage", "scripting", "tabs"],
+  "name": "性能监控",
+  "version": "2.0.0",
+  "description": "Tab 内存监控与一键休眠",
+  "permissions": ["activeTab", "tabs", "scripting", "storage"],
   "host_permissions": ["<all_urls>"],
+  "icons": {
+    "16": "sources/ic-chrome-16.png",
+    "64": "sources/tabs64.png",
+    "128": "sources/tabs128.png",
+    "256": "sources/tabs256.png"
+  },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "性能监控"
-  },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_start"
+    "default_title": "性能监控",
+    "default_icon": {
+      "16": "sources/ic-chrome-16.png",
+      "64": "sources/tabs64.png"
     }
-  ],
+  },
   "background": {
     "service_worker": "background.js"
-  },
-  "web_accessible_resources": [
-    {
-      "resources": ["inject.js"],
-      "matches": ["<all_urls>"]
-    }
-  ]
+  }
 }

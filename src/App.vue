@@ -100,7 +100,10 @@ interface PerformanceData {
   memory: number;
   cpu: number;
   cache: number;
+  source?: string;
 }
+
+type MetricKey = "memory" | "cpu" | "cache";
 
 export default defineComponent({
   name: "App",
@@ -142,9 +145,7 @@ export default defineComponent({
     };
 
     // 获取趋势图标
-    const getTrendIcon = (
-      metric: keyof typeof currentMetrics.value
-    ): string => {
+    const getTrendIcon = (metric: MetricKey): string => {
       const data = performanceData.value;
       if (data.length < 2) return "➡️";
 
@@ -157,9 +158,7 @@ export default defineComponent({
     };
 
     // 获取趋势样式类
-    const getTrendClass = (
-      metric: keyof typeof currentMetrics.value
-    ): string => {
+    const getTrendClass = (metric: MetricKey): string => {
       const data = performanceData.value;
       if (data.length < 2) return "neutral";
 
@@ -407,14 +406,23 @@ export default defineComponent({
 
     // 导出数据
     const exportData = () => {
+      const escapeCsvField = (field: string): string => {
+        if (field.includes(",") || field.includes('"') || field.includes("\n")) {
+          return `"${field.replace(/"/g, '""')}"`;
+        }
+        return field;
+      };
+
       const csvContent =
         "时间,内存使用,CPU使用率,缓存大小\n" +
         performanceData.value
-          .map(
-            (data) =>
-              `${new Date(data.timestamp).toLocaleString()},${data.memory},${
-                data.cpu
-              },${data.cache}`
+          .map((data) =>
+            [
+              escapeCsvField(new Date(data.timestamp).toLocaleString()),
+              String(data.memory),
+              data.cpu.toFixed(2),
+              String(data.cache),
+            ].join(",")
           )
           .join("\n");
 

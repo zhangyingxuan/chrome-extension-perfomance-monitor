@@ -1,21 +1,23 @@
 {
   "name": "chrome-extension-performance-monitor",
-  "version": "1.0.0",
-  "description": "零配置、一键启动的网站运行时性能监控Chrome扩展",
+  "version": "2.0.0",
+  "description": "Tab 内存监控与一键休眠 Chrome 扩展",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "build:extension": "vite build --outDir dist && node build.js",
+    "build": "vue-tsc --noEmit && vite build",
+    "watch": "vue-tsc --noEmit && vite build --watch",
+    "build:extension": "node build.js",
     "preview": "vite preview"
   },
   "dependencies": {
-    "vue": "^3.3.0",
-    "chart.js": "^3.9.1"
+    "vue": "^3.3.0"
   },
   "devDependencies": {
+    "@types/chrome": "^0.0.268",
     "@vitejs/plugin-vue": "^4.2.3",
     "typescript": "^5.0.0",
-    "vite": "^4.3.0"
+    "vite": "^4.3.0",
+    "vue-tsc": "^3.3.11"
   }
 }

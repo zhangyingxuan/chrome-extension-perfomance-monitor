@@ -238,6 +238,14 @@ function exportCurrentTabPerformanceData(tabId) {
 
 // 生成当前标签页CSV文件内容
 function generateCurrentTabCSV(tabData) {
+  const escapeField = (field) => {
+    const str = String(field);
+    if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
   const headers = [
     "时间",
     "内存使用(B)",
@@ -260,7 +268,9 @@ function generateCurrentTabCSV(tabData) {
     tabData.url || "",
   ]);
 
-  return [headers, ...rows].map((row) => row.join(",")).join("\n");
+  return [headers, ...rows]
+    .map((row) => row.map(escapeField).join(","))
+    .join("\n");
 }
 
 // 定期清理过期数据

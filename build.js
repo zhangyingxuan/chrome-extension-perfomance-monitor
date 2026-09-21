@@ -24,6 +24,7 @@ const config = {
   publicDir: "public",
   requiredFiles: [
     "popup.html",
+    "popup.css",
     "manifest.json",
     "background.js",
     "content.js",
@@ -111,6 +112,7 @@ function copyRequiredFiles() {
   const filesToCopy = [
     { src: config.manifestFile, dest: "dist/manifest.json" },
     { src: "popup.html", dest: "dist/popup.html" },
+    { src: "popup.css", dest: "dist/popup.css" },
     { src: "public/background.js", dest: "dist/background.js" },
   ];
 
@@ -121,6 +123,17 @@ function copyRequiredFiles() {
     } else {
       warn(`文件不存在: ${file.src}`);
     }
+  }
+
+  // 复制 sources 目录（图标等静态资源）
+  const sourcesSrc = path.join(config.publicDir, "sources");
+  const sourcesDest = path.join(config.outputDir, "sources");
+  if (fs.existsSync(sourcesSrc)) {
+    fs.mkdirSync(sourcesDest, { recursive: true });
+    for (const file of fs.readdirSync(sourcesSrc)) {
+      fs.copyFileSync(path.join(sourcesSrc, file), path.join(sourcesDest, file));
+    }
+    success(`复制目录: ${sourcesSrc} -> ${sourcesDest}`);
   }
 }
 

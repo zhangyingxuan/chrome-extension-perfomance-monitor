@@ -1,14 +1,14 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { fileURLToPath } from 'node:url'
 
 export default defineConfig({
+  base: './',
   plugins: [vue()],
   build: {
     rollupOptions: {
       input: {
-        popup: 'popup.html',
-        content: 'src/content.ts',
-        inject: 'src/inject.ts'
+        popup: 'popup.html'
       },
       output: {
         entryFileNames: '[name].js',
@@ -21,7 +21,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': '/src'
+      '@': fileURLToPath(new URL('./src', import.meta.url))
     }
   }
 })
