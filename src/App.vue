@@ -135,7 +135,6 @@ export default defineComponent({
   name: 'App',
   setup() {
     const tabs = ref<TabInfo[]>([])
-    const activeTabId = ref<number | null>(null)
     const selectedIds = ref<Set<number>>(new Set())
     const batchDiscarding = ref(false)
     const batchResultMessage = ref('')
@@ -160,7 +159,6 @@ export default defineComponent({
     async function refreshData() {
       const data = await fetchTabs()
       tabs.value = data.tabs
-      activeTabId.value = data.activeTabId
     }
 
     // ===== 排序后的 tab 列表 =====
@@ -317,6 +315,8 @@ export default defineComponent({
         case 'taskManager':
           navigator.clipboard.writeText('Shift+Esc').then(() => {
             showBatchResult('快捷键 Shift+Esc 已复制到剪贴板', 'success')
+          }).catch(() => {
+            showBatchResult('复制失败', 'error')
           })
           break
         case 'rendering':
@@ -339,7 +339,6 @@ export default defineComponent({
 
     return {
       tabs,
-      activeTabId,
       selectedIds,
       batchDiscarding,
       batchResultMessage,

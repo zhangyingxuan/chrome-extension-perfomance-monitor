@@ -127,9 +127,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'GET_ALL_TABS': {
       const tabs = Array.from(tabCache.values()).map(t => ({
         ...t,
-        isActive: t.tabId === activeTabId,
-        pinned: t.tabId ? false : false,
-        audible: t.tabId ? false : false
+        isActive: t.tabId === activeTabId
       }));
 
       // 补充 pinned/audible 实时状态
@@ -256,10 +254,6 @@ setInterval(async () => {
 
 // ===== 初始化 =====
 
-chrome.runtime.onStartup.addListener(async () => {
-  await initExtension();
-});
-
 async function initExtension() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab) activeTabId = tab.id;
@@ -268,9 +262,7 @@ async function initExtension() {
   await collectAllTabs();
 }
 
-chrome.runtime.onInstalled.addListener(async () => {
-  await initExtension();
-});
+chrome.runtime.onInstalled.addListener(() => initExtension());
 
-// 立即初始化（service worker 首次启动）
+// service worker 首次启动或从休眠唤醒
 initExtension();
