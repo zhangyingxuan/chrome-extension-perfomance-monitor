@@ -44,7 +44,7 @@ function drawIcon(text, bgColor) {
     ctx.textBaseline = "middle";
     ctx.fillText(text, size / 2, size / 2);
 
-    return canvas.transferToImageBitmap();
+    return ctx.getImageData(0, 0, size, size);
   } catch {
     return null;
   }
