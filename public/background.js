@@ -8,23 +8,23 @@ function getDomain(url) {
   try {
     return new URL(url).hostname;
   } catch {
-    return '';
+    return "";
   }
 }
 
 function formatBadgeText(bytes) {
-  if (bytes == null || bytes === 0) return '--';
+  if (bytes == null || bytes === 0) return "--";
   const mb = bytes / (1024 * 1024);
-  if (mb >= 1024) return (mb / 1024).toFixed(1) + 'GB';
-  return Math.round(mb) + 'MB';
+  if (mb >= 1024) return (mb / 1024).toFixed(1);
+  return Math.round(mb);
 }
 
 function getBadgeColor(bytes) {
-  if (bytes == null) return '#9E9E9E';
+  if (bytes == null) return "#9E9E9E";
   const mb = bytes / (1024 * 1024);
-  if (mb < 200) return '#4CAF50';
-  if (mb < 500) return '#FF9800';
-  return '#F44336';
+  if (mb < 200) return "#4CAF50";
+  if (mb < 500) return "#FF9800";
+  return "#F44336";
 }
 
 // ===== 内存采集 =====
@@ -39,7 +39,7 @@ async function collectTabMemory(tabId) {
         }
         return null;
       },
-      world: 'MAIN'
+      world: "MAIN",
     });
     if (results && results[0] && results[0].result != null) {
       return results[0].result;
@@ -52,18 +52,22 @@ async function collectTabMemory(tabId) {
 
 async function updateBadge() {
   if (activeTabId == null) {
-    await chrome.action.setBadgeText({ text: '--' });
-    await chrome.action.setBadgeBackgroundColor({ color: '#9E9E9E' });
+    await chrome.action.setBadgeText({ text: "--" });
+    await chrome.action.setBadgeBackgroundColor({ color: "#9E9E9E" });
     return;
   }
 
   const cached = tabCache.get(activeTabId);
   if (cached && cached.memoryBytes != null) {
-    await chrome.action.setBadgeText({ text: formatBadgeText(cached.memoryBytes) });
-    await chrome.action.setBadgeBackgroundColor({ color: getBadgeColor(cached.memoryBytes) });
+    await chrome.action.setBadgeText({
+      text: formatBadgeText(cached.memoryBytes),
+    });
+    await chrome.action.setBadgeBackgroundColor({
+      color: getBadgeColor(cached.memoryBytes),
+    });
   } else {
-    await chrome.action.setBadgeText({ text: '--' });
-    await chrome.action.setBadgeBackgroundColor({ color: '#9E9E9E' });
+    await chrome.action.setBadgeText({ text: "--" });
+    await chrome.action.setBadgeBackgroundColor({ color: "#9E9E9E" });
   }
 }
 
@@ -78,13 +82,18 @@ async function collectActiveTab() {
 
   tabCache.set(activeTabId, {
     tabId: activeTabId,
-    title: tab.title || '',
-    url: tab.url || '',
-    domain: getDomain(tab.url || ''),
-    favIconUrl: tab.favIconUrl || '',
-    memoryBytes: memory != null ? memory : (existing.discarded ? existing.memoryBytes : null),
+    title: tab.title || "",
+    url: tab.url || "",
+    domain: getDomain(tab.url || ""),
+    favIconUrl: tab.favIconUrl || "",
+    memoryBytes:
+      memory != null
+        ? memory
+        : existing.discarded
+          ? existing.memoryBytes
+          : null,
     discarded: existing.discarded || false,
-    lastUpdated: Date.now()
+    lastUpdated: Date.now(),
   });
 
   await updateBadge();
@@ -101,18 +110,23 @@ async function collectAllTabs() {
 
     tabCache.set(tab.id, {
       tabId: tab.id,
-      title: tab.title || '',
-      url: tab.url || '',
-      domain: getDomain(tab.url || ''),
-      favIconUrl: tab.favIconUrl || '',
-      memoryBytes: memory != null ? memory : (existing.discarded ? existing.memoryBytes : null),
+      title: tab.title || "",
+      url: tab.url || "",
+      domain: getDomain(tab.url || ""),
+      favIconUrl: tab.favIconUrl || "",
+      memoryBytes:
+        memory != null
+          ? memory
+          : existing.discarded
+            ? existing.memoryBytes
+            : null,
       discarded: existing.discarded || false,
-      lastUpdated: Date.now()
+      lastUpdated: Date.now(),
     });
   }
 
   // 清理已关闭的 tab
-  const openTabIds = new Set(allTabs.map(t => t.id));
+  const openTabIds = new Set(allTabs.map((t) => t.id));
   for (const id of tabCache.keys()) {
     if (!openTabIds.has(id)) {
       tabCache.delete(id);
@@ -124,21 +138,21 @@ async function collectAllTabs() {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   switch (request.type) {
-    case 'GET_ALL_TABS': {
-      const tabs = Array.from(tabCache.values()).map(t => ({
+    case "GET_ALL_TABS": {
+      const tabs = Array.from(tabCache.values()).map((t) => ({
         ...t,
-        isActive: t.tabId === activeTabId
+        isActive: t.tabId === activeTabId,
       }));
 
       // 补充 pinned/audible 实时状态
       chrome.tabs.query({}, (allTabs) => {
-        const tabMap = new Map(allTabs.map(t => [t.id, t]));
-        const enrichedTabs = tabs.map(t => {
+        const tabMap = new Map(allTabs.map((t) => [t.id, t]));
+        const enrichedTabs = tabs.map((t) => {
           const liveTab = tabMap.get(t.tabId);
           return {
             ...t,
             pinned: liveTab?.pinned || false,
-            audible: liveTab?.audible || false
+            audible: liveTab?.audible || false,
           };
         });
         sendResponse({ tabs: enrichedTabs, activeTabId });
@@ -146,13 +160,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
     }
 
-    case 'DISCARD_TAB': {
+    case "DISCARD_TAB": {
       const tabId = request.tabId;
       handleDiscardTab(tabId).then(sendResponse);
       return true;
     }
 
-    case 'BATCH_DISCARD': {
+    case "BATCH_DISCARD": {
       handleBatchDiscard(request.tabIds).then(sendResponse);
       return true;
     }
@@ -162,13 +176,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function handleDiscardTab(tabId) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab && tab.id === tabId) {
-    return { success: false, error: '无法休眠当前标签页' };
+    return { success: false, error: "无法休眠当前标签页" };
   }
 
   const tabInfo = await chrome.tabs.get(tabId).catch(() => null);
-  if (!tabInfo) return { success: false, error: '标签页已关闭' };
-  if (tabInfo.pinned) return { success: false, error: '无法休眠固定标签页' };
-  if (tabInfo.audible) return { success: false, error: '无法休眠正在播放音频的标签页' };
+  if (!tabInfo) return { success: false, error: "标签页已关闭" };
+  if (tabInfo.pinned) return { success: false, error: "无法休眠固定标签页" };
+  if (tabInfo.audible)
+    return { success: false, error: "无法休眠正在播放音频的标签页" };
 
   const result = await chrome.tabs.discard(tabId).catch(() => false);
   if (result) {
@@ -179,19 +194,19 @@ async function handleDiscardTab(tabId) {
     }
     return { success: true };
   }
-  return { success: false, error: '休眠失败' };
+  return { success: false, error: "休眠失败" };
 }
 
 async function handleBatchDiscard(tabIds) {
   const results = [];
   const sorted = tabIds
-    .map(id => ({ id, memory: tabCache.get(id)?.memoryBytes || 0 }))
+    .map((id) => ({ id, memory: tabCache.get(id)?.memoryBytes || 0 }))
     .sort((a, b) => b.memory - a.memory);
 
   for (const item of sorted) {
     const result = await handleDiscardTab(item.id);
     results.push({ tabId: item.id, ...result });
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 200));
   }
 
   return { results };
@@ -205,7 +220,7 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.status === 'complete') {
+  if (changeInfo.status === "complete") {
     const cached = tabCache.get(tabId);
     if (cached) {
       cached.discarded = false;
@@ -243,13 +258,21 @@ let allCollecting = false;
 setInterval(async () => {
   if (activeCollecting) return;
   activeCollecting = true;
-  try { await collectActiveTab(); } finally { activeCollecting = false; }
+  try {
+    await collectActiveTab();
+  } finally {
+    activeCollecting = false;
+  }
 }, 1000);
 
 setInterval(async () => {
   if (allCollecting) return;
   allCollecting = true;
-  try { await collectAllTabs(); } finally { allCollecting = false; }
+  try {
+    await collectAllTabs();
+  } finally {
+    allCollecting = false;
+  }
 }, 3000);
 
 // ===== 初始化 =====
