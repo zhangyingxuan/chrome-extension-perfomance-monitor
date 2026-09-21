@@ -1,647 +1,671 @@
 <template>
-  <div class="performance-monitor">
-    <!-- 头部控制栏 -->
+  <div class="monitor">
+    <!-- 标题栏 -->
     <div class="header">
-      <h2>网站性能监控</h2>
-      <div class="controls">
-        <button @click="toggleMonitoring" :class="{ active: isMonitoring }">
-          {{ isMonitoring ? "停止监控" : "开始监控" }}
-        </button>
-        <button @click="exportData" :disabled="!performanceData.length">
-          导出数据
-        </button>
-        <button @click="clearData" :disabled="!performanceData.length">
-          清空数据
-        </button>
-      </div>
+      <span class="header-title">性能监控</span>
+      <span class="header-memory">当前: {{ activeTabMemoryDisplay }}</span>
     </div>
 
-    <!-- 当前指标显示 -->
-    <div class="current-metrics">
-      <div class="metric-card">
-        <h3>内存使用</h3>
-        <div class="metric-value">
-          {{ formatMemory(currentMetrics.memory) }}
+    <!-- 浏览器工具 -->
+    <div class="section">
+      <div class="section-title">浏览器工具</div>
+      <div class="tools-list">
+        <div class="tool-item" @click="openTool('performance')">
+          <span class="tool-icon">&#128269;</span>
+          <span class="tool-name">性能监视器</span>
         </div>
-        <div class="metric-trend" :class="getTrendClass('memory')">
-          {{ getTrendIcon("memory") }}
+        <div class="tool-item" @click="openTool('taskManager')">
+          <span class="tool-icon">&#128203;</span>
+          <span class="tool-name">任务管理器</span>
+          <span class="tool-shortcut">Shift+Esc</span>
         </div>
-      </div>
-      <div class="metric-card">
-        <h3>CPU使用率</h3>
-        <div class="metric-value">{{ formatCpu(currentMetrics.cpu) }}%</div>
-        <div class="metric-trend" :class="getTrendClass('cpu')">
-          {{ getTrendIcon("cpu") }}
-        </div>
-      </div>
-      <div class="metric-card">
-        <h3>缓存大小</h3>
-        <div class="metric-value">{{ formatMemory(currentMetrics.cache) }}</div>
-        <div class="metric-trend" :class="getTrendClass('cache')">
-          {{ getTrendIcon("cache") }}
+        <div class="tool-item" @click="openTool('rendering')">
+          <span class="tool-icon">&#127916;</span>
+          <span class="tool-name">帧渲染统计</span>
         </div>
       </div>
     </div>
 
-    <!-- 图表展示 -->
-    <div class="charts">
-      <div class="chart-container">
-        <h3>内存使用趋势</h3>
-        <canvas ref="memoryChart"></canvas>
+    <!-- Tab 内存排行榜 -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Tab 内存排行榜</span>
+        <div class="batch-actions">
+          <label class="select-all-label">
+            <input
+              type="checkbox"
+              :checked="allDiscardableSelected"
+              @change="toggleSelectAll"
+            />
+            <span>全选</span>
+          </label>
+          <button
+            class="btn-batch"
+            :disabled="selectedIds.size === 0 || batchDiscarding"
+            @click="batchDiscard"
+          >
+            {{ batchDiscarding ? '处理中...' : `批量休眠 (${selectedIds.size})` }}
+          </button>
+        </div>
       </div>
-      <div class="chart-container">
-        <h3>CPU使用率趋势</h3>
-        <canvas ref="cpuChart"></canvas>
-      </div>
-      <div class="chart-container">
-        <h3>缓存大小趋势</h3>
-        <canvas ref="cacheChart"></canvas>
+
+      <div class="data-tip">数据仅为 JS 堆内存，不含渲染进程开销、GPU 内存等</div>
+
+      <div class="tab-list">
+        <div
+          v-for="tab in sortedTabs"
+          :key="tab.tabId"
+          class="tab-item"
+          :class="{
+            'is-active': tab.isActive,
+            'is-discarded': tab.discarded
+          }"
+        >
+          <div class="tab-left">
+            <input
+              type="checkbox"
+              :checked="selectedIds.has(tab.tabId)"
+              :disabled="!isDiscardable(tab)"
+              @change="toggleSelect(tab.tabId)"
+            />
+            <img
+              v-if="tab.favIconUrl"
+              :src="tab.favIconUrl"
+              class="favicon"
+              @error="(e: Event) => { const t = e.target as HTMLImageElement; if (t) t.style.visibility = 'hidden' }"
+            />
+            <span v-else class="favicon-placeholder">&#127760;</span>
+            <span class="domain">{{ tab.domain || '--' }}</span>
+          </div>
+
+          <div class="tab-center">
+            <span class="tab-title" :title="tab.title">{{ tab.title }}</span>
+            <span class="memory-value" :class="{ 'memory-na': tab.memoryBytes == null }">
+              {{ tab.discarded ? formatMemory(tab.memoryBytes) + ' (已休眠)' : formatMemory(tab.memoryBytes) }}
+            </span>
+          </div>
+
+          <div class="tab-right">
+            <button
+              class="btn-discard"
+              :disabled="!canDiscardTab(tab)"
+              :title="getDiscardTooltip(tab)"
+              @click="discardTab(tab.tabId)"
+            >
+              {{ tab.discarded ? '已休眠' : '休眠' }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- 数据表格 -->
-    <div class="data-table" v-if="performanceData.length">
-      <h3>详细数据</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>时间</th>
-            <th>内存</th>
-            <th>CPU</th>
-            <th>缓存</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(data, index) in reversedData" :key="index">
-            <td>{{ formatTime(data.timestamp) }}</td>
-            <td>{{ formatMemory(data.memory) }}</td>
-            <td>{{ formatCpu(data.cpu) }}%</td>
-            <td>{{ formatMemory(data.cache) }}</td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- 底部汇总 -->
+    <div class="summary">
+      已勾选 {{ selectedIds.size }} 个 &middot;
+      共 {{ sortedTabs.length }} 个标签页 &middot;
+      总计 {{ totalMemoryDisplay }} &middot;
+      可释放 ~{{ reclaimableDisplay }}
+    </div>
+
+    <!-- 批量操作结果提示 -->
+    <div v-if="batchResultMessage" class="batch-result" :class="batchResultType">
+      {{ batchResultMessage }}
     </div>
   </div>
 </template>
 
 <script lang="ts">
-import {
-  defineComponent,
-  ref,
-  onMounted,
-  onUnmounted,
-  nextTick,
-  computed,
-} from "vue";
-import Chart from "chart.js/auto";
+import { defineComponent, ref, computed, onMounted, onUnmounted } from 'vue'
 
-interface PerformanceData {
-  timestamp: number;
-  memory: number;
-  cpu: number;
-  cache: number;
-  source?: string;
+interface TabInfo {
+  tabId: number
+  title: string
+  url: string
+  domain: string
+  favIconUrl: string
+  memoryBytes: number | null
+  discarded: boolean
+  lastUpdated: number
+  isActive: boolean
+  pinned: boolean
+  audible: boolean
 }
 
-type MetricKey = "memory" | "cpu" | "cache";
-
 export default defineComponent({
-  name: "App",
+  name: 'App',
   setup() {
-    const isMonitoring = ref(false);
-    const performanceData = ref<PerformanceData[]>([]);
-    const currentMetrics = ref({
-      memory: 0,
-      cpu: 0,
-      cache: 0,
-    });
+    const tabs = ref<TabInfo[]>([])
+    const activeTabId = ref<number | null>(null)
+    const selectedIds = ref<Set<number>>(new Set())
+    const batchDiscarding = ref(false)
+    const batchResultMessage = ref('')
+    const batchResultType = ref<'success' | 'error'>('success')
+    let pollTimer: number | null = null
+    let batchResultTimer: number | null = null
 
-    const memoryChart = ref<HTMLCanvasElement | null>(null);
-    const cpuChart = ref<HTMLCanvasElement | null>(null);
-    const cacheChart = ref<HTMLCanvasElement | null>(null);
+    // ===== 数据获取 =====
 
-    let memoryChartInstance: Chart | null = null;
-    let cpuChartInstance: Chart | null = null;
-    let cacheChartInstance: Chart | null = null;
-    let monitoringInterval: number | null = null;
-
-    // 格式化内存大小
-    const formatMemory = (bytes: number): string => {
-      if (bytes === 0) return "0 B";
-      const k = 1024;
-      const sizes = ["B", "KB", "MB", "GB"];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-    };
-
-    // 格式化CPU使用率（四舍五入保留两位小数）
-    const formatCpu = (cpu: number): string => {
-      return cpu.toFixed(2);
-    };
-
-    // 格式化时间
-    const formatTime = (timestamp: number): string => {
-      return new Date(timestamp).toLocaleTimeString();
-    };
-
-    // 获取趋势图标
-    const getTrendIcon = (metric: MetricKey): string => {
-      const data = performanceData.value;
-      if (data.length < 2) return "➡️";
-
-      const current = data[data.length - 1][metric];
-      const previous = data[data.length - 2][metric];
-
-      if (current > previous) return "📈";
-      if (current < previous) return "📉";
-      return "➡️";
-    };
-
-    // 获取趋势样式类
-    const getTrendClass = (metric: MetricKey): string => {
-      const data = performanceData.value;
-      if (data.length < 2) return "neutral";
-
-      const current = data[data.length - 1][metric];
-      const previous = data[data.length - 2][metric];
-
-      if (current > previous) return "up";
-      if (current < previous) return "down";
-      return "neutral";
-    };
-
-    // 反转数据用于表格显示（最新的在最上面）
-    const reversedData = computed(() => {
-      return [...performanceData.value].reverse();
-    });
-
-    // 初始化图表
-    const initCharts = () => {
-      if (memoryChart.value && cpuChart.value && cacheChart.value) {
-        // 内存图表
-        memoryChartInstance = new Chart(memoryChart.value, {
-          type: "line",
-          data: {
-            labels: [],
-            datasets: [
-              {
-                label: "内存使用",
-                data: [],
-                borderColor: "rgb(75, 192, 192)",
-                tension: 0.1,
-              },
-            ],
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-              y: {
-                beginAtZero: true,
-                ticks: {
-                  callback: function (value) {
-                    return formatMemory(Number(value));
-                  },
-                },
-              },
-            },
-          },
-        });
-
-        // CPU图表
-        cpuChartInstance = new Chart(cpuChart.value, {
-          type: "line",
-          data: {
-            labels: [],
-            datasets: [
-              {
-                label: "CPU使用率",
-                data: [],
-                borderColor: "rgb(255, 99, 132)",
-                tension: 0.1,
-              },
-            ],
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-              y: {
-                beginAtZero: true,
-                max: 100,
-                ticks: {
-                  callback: function (value) {
-                    return formatCpu(Number(value)) + "%";
-                  },
-                },
-              },
-            },
-          },
-        });
-
-        // 缓存图表
-        cacheChartInstance = new Chart(cacheChart.value, {
-          type: "line",
-          data: {
-            labels: [],
-            datasets: [
-              {
-                label: "缓存大小",
-                data: [],
-                borderColor: "rgb(153, 102, 255)",
-                tension: 0.1,
-              },
-            ],
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-              y: {
-                beginAtZero: true,
-                ticks: {
-                  callback: function (value) {
-                    return formatMemory(Number(value));
-                  },
-                },
-              },
-            },
-          },
-        });
-      }
-    };
-
-    // 更新图表数据
-    const updateCharts = () => {
-      if (!memoryChartInstance || !cpuChartInstance || !cacheChartInstance)
-        return;
-
-      const labels = performanceData.value.map((d) => formatTime(d.timestamp));
-      const memoryData = performanceData.value.map((d) => d.memory);
-      const cpuData = performanceData.value.map((d) => d.cpu);
-      const cacheData = performanceData.value.map((d) => d.cache);
-
-      memoryChartInstance.data.labels = labels;
-      memoryChartInstance.data.datasets[0].data = memoryData;
-      memoryChartInstance.update();
-
-      cpuChartInstance.data.labels = labels;
-      cpuChartInstance.data.datasets[0].data = cpuData;
-      cpuChartInstance.update();
-
-      cacheChartInstance.data.labels = labels;
-      cacheChartInstance.data.datasets[0].data = cacheData;
-      cacheChartInstance.update();
-    };
-
-    // 获取当前标签页性能数据
-    const getPerformanceData = async (): Promise<PerformanceData> => {
-      return new Promise((resolve) => {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          if (tabs[0]?.id) {
-            const currentTabId = tabs[0].id;
-
-            // 优先从background获取当前标签页的存储数据
-            chrome.runtime.sendMessage(
-              { type: "GET_ACTIVE_TAB_DATA" },
-              (response) => {
-                if (response && response.data && response.data.length > 0) {
-                  // 使用存储的最新数据
-                  const latestData = response.data[response.data.length - 1];
-                  resolve({
-                    timestamp: latestData.timestamp || Date.now(),
-                    memory: latestData.memory || 0,
-                    cpu: latestData.cpu || 0,
-                    cache: latestData.cache || 0,
-                    source: latestData.source || "stored",
-                  });
-                } else {
-                  // 如果没有存储数据，从content script获取实时数据
-                  chrome.tabs.sendMessage(
-                    currentTabId,
-                    { type: "GET_PERFORMANCE_DATA" },
-                    (response) => {
-                      if (response) {
-                        resolve({
-                          timestamp: Date.now(),
-                          memory: response.memory || 0,
-                          cpu: response.cpu || 0,
-                          cache: response.cache || 0,
-                          source: response.source || "realtime",
-                        });
-                      } else {
-                        // 如果都没有响应，使用模拟数据
-                        resolve({
-                          timestamp: Date.now(),
-                          memory: Math.random() * 50000000 + 10000000, // 10-60MB
-                          cpu: Math.random() * 30 + 10, // 10-40%
-                          cache: Math.random() * 20000000 + 5000000, // 5-25MB
-                          source: "fallback",
-                        });
-                      }
-                    }
-                  );
-                }
-              }
-            );
-          } else {
-            // 没有活跃标签页，返回默认数据
-            resolve({
-              timestamp: Date.now(),
-              memory: 0,
-              cpu: 0,
-              cache: 0,
-              source: "no_active_tab",
-            });
+    async function fetchTabs() {
+      return new Promise<{ tabs: TabInfo[]; activeTabId: number | null }>((resolve) => {
+        chrome.runtime.sendMessage({ type: 'GET_ALL_TABS' }, (response) => {
+          if (chrome.runtime.lastError) {
+            resolve({ tabs: [], activeTabId: null })
+            return
           }
-        });
-      });
-    };
+          resolve(response || { tabs: [], activeTabId: null })
+        })
+      })
+    }
 
-    // 开始/停止监控
-    const toggleMonitoring = async () => {
-      if (isMonitoring.value) {
-        // 停止监控
-        if (monitoringInterval) {
-          clearInterval(monitoringInterval);
-          monitoringInterval = null;
-        }
-        isMonitoring.value = false;
+    async function refreshData() {
+      const data = await fetchTabs()
+      tabs.value = data.tabs
+      activeTabId.value = data.activeTabId
+    }
+
+    // ===== 排序后的 tab 列表 =====
+
+    const sortedTabs = computed(() => {
+      return [...tabs.value].sort((a, b) => {
+        const aMem = a.memoryBytes ?? -1
+        const bMem = b.memoryBytes ?? -1
+        return bMem - aMem
+      })
+    })
+
+    // ===== 显示值 =====
+
+    const activeTabMemoryDisplay = computed(() => {
+      const active = tabs.value.find(t => t.isActive)
+      return formatMemory(active?.memoryBytes ?? null)
+    })
+
+    const totalMemoryDisplay = computed(() => {
+      const total = tabs.value.reduce((sum, t) => sum + (t.memoryBytes || 0), 0)
+      return formatMemory(total || null)
+    })
+
+    const reclaimableDisplay = computed(() => {
+      let total = 0
+      for (const id of selectedIds.value) {
+        const tab = tabs.value.find(t => t.tabId === id)
+        if (tab) total += tab.memoryBytes || 0
+      }
+      return formatMemory(total || null)
+    })
+
+    function formatMemory(bytes: number | null): string {
+      if (bytes == null || bytes === 0) return '--'
+      const mb = bytes / (1024 * 1024)
+      if (mb >= 1024) return (mb / 1024).toFixed(1) + 'GB'
+      return Math.round(mb) + 'MB'
+    }
+
+    // ===== 选择逻辑 =====
+
+    const discardableTabs = computed(() => {
+      return tabs.value.filter(t => isDiscardable(t))
+    })
+
+    const allDiscardableSelected = computed(() => {
+      const discardable = discardableTabs.value
+      if (discardable.length === 0) return false
+      return discardable.every(t => selectedIds.value.has(t.tabId))
+    })
+
+    function isDiscardable(tab: TabInfo): boolean {
+      return !tab.isActive && !tab.pinned && !tab.audible && !tab.discarded && tab.memoryBytes != null
+    }
+
+    function toggleSelect(tabId: number) {
+      const newSet = new Set(selectedIds.value)
+      if (newSet.has(tabId)) {
+        newSet.delete(tabId)
       } else {
-        // 开始监控
-        isMonitoring.value = true;
-
-        // 先获取一次当前数据
-        const initialData = await getPerformanceData();
-        performanceData.value.push(initialData);
-        currentMetrics.value = initialData;
-        updateCharts();
-
-        // 设置定时监控
-        monitoringInterval = window.setInterval(async () => {
-          const data = await getPerformanceData();
-
-          // 只添加有意义的数据变化（避免重复的相同数据）
-          const lastData =
-            performanceData.value[performanceData.value.length - 1];
-          if (
-            !lastData ||
-            Math.abs(data.memory - lastData.memory) > 1000 || // 内存变化超过1KB
-            Math.abs(data.cpu - lastData.cpu) > 0.1 || // CPU变化超过0.1%
-            Math.abs(data.cache - lastData.cache) > 1000
-          ) {
-            // 缓存变化超过1KB
-            performanceData.value.push(data);
-            currentMetrics.value = data;
-            updateCharts();
-          }
-
-          // 限制数据量，保留最近80条（减少内存占用）
-          if (performanceData.value.length > 80) {
-            performanceData.value = performanceData.value.slice(-80);
-          }
-        }, 3000); // 每3秒采集一次（减少采集频率）
+        newSet.add(tabId)
       }
-    };
+      selectedIds.value = newSet
+    }
 
-    // 导出数据
-    const exportData = () => {
-      const escapeCsvField = (field: string): string => {
-        if (field.includes(",") || field.includes('"') || field.includes("\n")) {
-          return `"${field.replace(/"/g, '""')}"`;
-        }
-        return field;
-      };
-
-      const csvContent =
-        "时间,内存使用,CPU使用率,缓存大小\n" +
-        performanceData.value
-          .map((data) =>
-            [
-              escapeCsvField(new Date(data.timestamp).toLocaleString()),
-              String(data.memory),
-              data.cpu.toFixed(2),
-              String(data.cache),
-            ].join(",")
-          )
-          .join("\n");
-
-      const blob = new Blob([csvContent], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `performance_data_${
-        new Date().toISOString().split("T")[0]
-      }.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-    };
-
-    // 清空数据
-    const clearData = () => {
-      performanceData.value = [];
-      currentMetrics.value = { memory: 0, cpu: 0, cache: 0 };
-      if (memoryChartInstance && cpuChartInstance && cacheChartInstance) {
-        memoryChartInstance.data.labels = [];
-        memoryChartInstance.data.datasets[0].data = [];
-        memoryChartInstance.update();
-
-        cpuChartInstance.data.labels = [];
-        cpuChartInstance.data.datasets[0].data = [];
-        cpuChartInstance.update();
-
-        cacheChartInstance.data.labels = [];
-        cacheChartInstance.data.datasets[0].data = [];
-        cacheChartInstance.update();
+    function toggleSelectAll() {
+      if (allDiscardableSelected.value) {
+        selectedIds.value = new Set()
+      } else {
+        selectedIds.value = new Set(discardableTabs.value.map(t => t.tabId))
       }
-    };
+    }
 
-    onMounted(() => {
-      nextTick(() => {
-        initCharts();
-      });
-    });
+    // ===== 休眠逻辑 =====
+
+    function canDiscardTab(tab: TabInfo): boolean {
+      return !tab.isActive && !tab.pinned && !tab.audible && !tab.discarded
+    }
+
+    function getDiscardTooltip(tab: TabInfo): string {
+      if (tab.isActive) return '无法休眠当前标签页'
+      if (tab.pinned) return '无法休眠固定标签页'
+      if (tab.audible) return '无法休眠正在播放音频的标签页'
+      if (tab.discarded) return '已休眠'
+      return '点击休眠此标签页'
+    }
+
+    async function discardTab(tabId: number) {
+      const result = await new Promise<{ success: boolean; error?: string }>((resolve) => {
+        chrome.runtime.sendMessage({ type: 'DISCARD_TAB', tabId }, (response) => {
+          if (chrome.runtime.lastError) {
+            resolve({ success: false, error: '通信失败' })
+            return
+          }
+          resolve(response || { success: false, error: '无响应' })
+        })
+      })
+
+      if (result.success) {
+        const tab = tabs.value.find(t => t.tabId === tabId)
+        if (tab) tab.discarded = true
+        selectedIds.value.delete(tabId)
+        selectedIds.value = new Set(selectedIds.value)
+      } else {
+        showBatchResult(result.error || '休眠失败', 'error')
+      }
+    }
+
+    async function batchDiscard() {
+      if (selectedIds.value.size === 0) return
+      batchDiscarding.value = true
+
+      const result = await new Promise<{ results: { tabId: number; success: boolean; error?: string }[] }>((resolve) => {
+        chrome.runtime.sendMessage({ type: 'BATCH_DISCARD', tabIds: Array.from(selectedIds.value) }, (response) => {
+          if (chrome.runtime.lastError) {
+            resolve({ results: [] })
+            return
+          }
+          resolve(response || { results: [] })
+        })
+      })
+
+      const successCount = result.results.filter(r => r.success).length
+      const failCount = result.results.length - successCount
+
+      if (failCount === 0) {
+        showBatchResult(`成功休眠 ${successCount} 个标签页`, 'success')
+      } else {
+        showBatchResult(`成功休眠 ${successCount} 个，失败 ${failCount} 个`, 'error')
+      }
+
+      selectedIds.value = new Set()
+      batchDiscarding.value = false
+      await refreshData()
+    }
+
+    function showBatchResult(message: string, type: 'success' | 'error') {
+      batchResultMessage.value = message
+      batchResultType.value = type
+      if (batchResultTimer) clearTimeout(batchResultTimer)
+      batchResultTimer = window.setTimeout(() => {
+        batchResultMessage.value = ''
+      }, 3000)
+    }
+
+    // ===== 工具入口 =====
+
+    function openTool(tool: string) {
+      switch (tool) {
+        case 'performance':
+          chrome.tabs.create({ url: 'chrome://inspect/#monitors' })
+          break
+        case 'taskManager':
+          navigator.clipboard.writeText('Shift+Esc').then(() => {
+            showBatchResult('快捷键 Shift+Esc 已复制到剪贴板', 'success')
+          })
+          break
+        case 'rendering':
+          showBatchResult('请按 F12 打开 DevTools → Ctrl+Shift+P → 输入 "Rendering"', 'success')
+          break
+      }
+    }
+
+    // ===== 生命周期 =====
+
+    onMounted(async () => {
+      await refreshData()
+      pollTimer = window.setInterval(refreshData, 1000)
+    })
 
     onUnmounted(() => {
-      if (monitoringInterval) {
-        clearInterval(monitoringInterval);
-      }
-      if (memoryChartInstance) memoryChartInstance.destroy();
-      if (cpuChartInstance) cpuChartInstance.destroy();
-      if (cacheChartInstance) cacheChartInstance.destroy();
-    });
+      if (pollTimer) clearInterval(pollTimer)
+      if (batchResultTimer) clearTimeout(batchResultTimer)
+    })
 
     return {
-      isMonitoring,
-      performanceData,
-      currentMetrics,
-      memoryChart,
-      cpuChart,
-      cacheChart,
-      reversedData,
+      tabs,
+      activeTabId,
+      selectedIds,
+      batchDiscarding,
+      batchResultMessage,
+      batchResultType,
+      sortedTabs,
+      activeTabMemoryDisplay,
+      totalMemoryDisplay,
+      reclaimableDisplay,
+      allDiscardableSelected,
       formatMemory,
-      formatCpu,
-      formatTime,
-      getTrendIcon,
-      getTrendClass,
-      toggleMonitoring,
-      exportData,
-      clearData,
-    };
-  },
-});
+      isDiscardable,
+      canDiscardTab,
+      getDiscardTooltip,
+      toggleSelect,
+      toggleSelectAll,
+      discardTab,
+      batchDiscard,
+      openTool,
+    }
+  }
+})
 </script>
 
 <style scoped>
-.performance-monitor {
-  padding: 16px;
-  height: 100%;
-  overflow-y: auto;
+.monitor {
+  padding: 12px 16px;
 }
 
+/* 标题栏 */
 .header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  border-bottom: 1px solid #e0e0e0;
-  padding-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e8e8e8;
+  margin-bottom: 12px;
 }
 
-.header h2 {
-  margin: 0;
+.header-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.header-memory {
+  font-size: 13px;
+  font-weight: 600;
   color: #333;
-  font-size: 18px;
+  background: #f0f0f0;
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 
-.controls {
+/* 区块 */
+.section {
+  margin-bottom: 12px;
+}
+
+.section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 6px;
+}
+
+.section-header {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+/* 工具列表 */
+.tools-list {
+  background: #fff;
+  border-radius: 6px;
+  border: 1px solid #e8e8e8;
+}
+
+.tool-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.tool-item:hover {
+  background: #f5f7fa;
+}
+
+.tool-item + .tool-item {
+  border-top: 1px solid #f0f0f0;
+}
+
+.tool-icon {
+  margin-right: 8px;
+  font-size: 14px;
+}
+
+.tool-name {
+  flex: 1;
+  font-size: 13px;
+  color: #333;
+}
+
+.tool-shortcut {
+  font-size: 11px;
+  color: #999;
+  background: #f0f0f0;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+/* 批量操作 */
+.batch-actions {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
-.controls button {
-  padding: 6px 12px;
-  border: 1px solid #ddd;
-  background: white;
+.select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #666;
+  cursor: pointer;
+}
+
+.btn-batch {
+  padding: 3px 10px;
+  font-size: 12px;
+  border: 1px solid #1890ff;
+  background: #1890ff;
+  color: #fff;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  transition: opacity 0.15s;
 }
 
-.controls button:hover {
-  background: #f5f5f5;
-}
-
-.controls button.active {
-  background: #4caf50;
-  color: white;
-  border-color: #4caf50;
-}
-
-.controls button:disabled {
+.btn-batch:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.current-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-bottom: 20px;
+.btn-batch:hover:not(:disabled) {
+  background: #40a9ff;
 }
 
-.metric-card {
-  background: white;
-  padding: 12px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+/* 数据提示 */
+.data-tip {
+  font-size: 11px;
+  color: #999;
+  margin-bottom: 8px;
+}
+
+/* Tab 列表 */
+.tab-list {
+  background: #fff;
+  border-radius: 6px;
+  border: 1px solid #e8e8e8;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.tab-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.tab-item + .tab-item {
+  border-top: 1px solid #f0f0f0;
+}
+
+.tab-item.is-active {
+  border-left: 3px solid #1890ff;
+  padding-left: 7px;
+  background: #f0f7ff;
+}
+
+.tab-item.is-discarded {
+  opacity: 0.5;
+}
+
+.tab-item:hover {
+  background: #fafafa;
+}
+
+.tab-item.is-active:hover {
+  background: #e6f1ff;
+}
+
+/* Tab 左侧 */
+.tab-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 120px;
+  flex-shrink: 0;
+}
+
+.tab-left input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.favicon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.favicon-placeholder {
+  width: 16px;
+  height: 16px;
+  font-size: 12px;
+  flex-shrink: 0;
+  text-align: center;
+  line-height: 16px;
+}
+
+.domain {
+  font-size: 11px;
+  color: #999;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tab 中间 */
+.tab-center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 8px;
+}
+
+.tab-title {
+  font-size: 12px;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.memory-na {
+  color: #999;
+  font-weight: 400;
+}
+
+/* Tab 右侧 */
+.tab-right {
+  flex-shrink: 0;
+}
+
+.btn-discard {
+  padding: 3px 10px;
+  font-size: 12px;
+  border: 1px solid #ff4d4f;
+  background: #fff;
+  color: #ff4d4f;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-discard:hover:not(:disabled) {
+  background: #ff4d4f;
+  color: #fff;
+}
+
+.btn-discard:disabled {
+  border-color: #d9d9d9;
+  color: #bbb;
+  cursor: not-allowed;
+}
+
+/* 底部汇总 */
+.summary {
+  padding: 8px 0;
+  font-size: 12px;
+  color: #999;
+  border-top: 1px solid #e8e8e8;
   text-align: center;
 }
 
-.metric-card h3 {
-  margin: 0 0 8px 0;
+/* 批量结果提示 */
+.batch-result {
+  position: fixed;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 16px;
+  border-radius: 4px;
   font-size: 12px;
-  color: #666;
+  z-index: 100;
+  animation: fadeIn 0.2s ease;
 }
 
-.metric-value {
-  font-size: 16px;
-  font-weight: bold;
-  color: #333;
-  margin-bottom: 4px;
+.batch-result.success {
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  color: #52c41a;
 }
 
-.metric-trend {
-  font-size: 14px;
+.batch-result.error {
+  background: #fff2f0;
+  border: 1px solid #ffccc7;
+  color: #ff4d4f;
 }
 
-.metric-trend.up {
-  color: #f44336;
-}
-.metric-trend.down {
-  color: #4caf50;
-}
-.metric-trend.neutral {
-  color: #666;
-}
-
-.charts {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 16px;
-  margin-bottom: 20px;
-}
-
-.chart-container {
-  background: white;
-  padding: 12px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.chart-container h3 {
-  margin: 0 0 12px 0;
-  font-size: 14px;
-  color: #333;
-}
-
-.chart-container canvas {
-  width: 100% !important;
-  height: 150px !important;
-}
-
-.data-table {
-  background: white;
-  padding: 12px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.data-table h3 {
-  margin: 0 0 12px 0;
-  font-size: 14px;
-  color: #333;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-th,
-td {
-  padding: 6px 8px;
-  text-align: left;
-  border-bottom: 1px solid #e0e0e0;
-}
-
-th {
-  background: #f5f5f5;
-  font-weight: 600;
-}
-
-tr:hover {
-  background: #f9f9f9;
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 </style>
