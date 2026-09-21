@@ -16,7 +16,7 @@ function formatBadgeText(bytes) {
   if (bytes == null || bytes === 0) return "--";
   const mb = bytes / (1024 * 1024);
   if (mb >= 1024) return (mb / 1024).toFixed(1);
-  return Math.round(mb);
+  return String(Math.round(mb));
 }
 
 function getBadgeColor(bytes) {
@@ -25,6 +25,29 @@ function getBadgeColor(bytes) {
   if (mb < 200) return "#4CAF50";
   if (mb < 500) return "#FF9800";
   return "#F44336";
+}
+
+function drawIcon(text, bgColor) {
+  try {
+    const size = 128;
+    const canvas = new OffscreenCanvas(size, size);
+    const ctx = canvas.getContext("2d");
+
+    ctx.fillStyle = bgColor;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, size, size, 20);
+    ctx.fill();
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 48px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, size / 2, size / 2);
+
+    return canvas.transferToImageBitmap();
+  } catch {
+    return null;
+  }
 }
 
 // ===== 内存采集 =====
@@ -51,23 +74,26 @@ async function collectTabMemory(tabId) {
 }
 
 async function updateBadge() {
+  let text, color;
   if (activeTabId == null) {
-    await chrome.action.setBadgeText({ text: "--" });
-    await chrome.action.setBadgeBackgroundColor({ color: "#9E9E9E" });
-    return;
+    text = "--";
+    color = "#9E9E9E";
+  } else {
+    const cached = tabCache.get(activeTabId);
+    if (cached && cached.memoryBytes != null) {
+      text = formatBadgeText(cached.memoryBytes);
+      color = getBadgeColor(cached.memoryBytes);
+    } else {
+      text = "--";
+      color = "#9E9E9E";
+    }
   }
 
-  const cached = tabCache.get(activeTabId);
-  if (cached && cached.memoryBytes != null) {
-    await chrome.action.setBadgeText({
-      text: formatBadgeText(cached.memoryBytes),
-    });
-    await chrome.action.setBadgeBackgroundColor({
-      color: getBadgeColor(cached.memoryBytes),
-    });
-  } else {
-    await chrome.action.setBadgeText({ text: "--" });
-    await chrome.action.setBadgeBackgroundColor({ color: "#9E9E9E" });
+  await chrome.action.setBadgeText({ text: "" });
+
+  const icon = drawIcon(text, color);
+  if (icon) {
+    await chrome.action.setIcon({ imageData: { 128: icon } });
   }
 }
 
